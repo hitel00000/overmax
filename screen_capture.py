@@ -52,10 +52,28 @@ class ScreenCapture:
         self._last_title = ""
         self._is_song_select = False
         
-        # Windows OCR 엔진 초기화 (한국어 우선)
+        # Windows OCR 엔진 초기화
+        self.ocr_engine = None
         if WINDOWS_OCR_AVAILABLE:
-            lang = ocr.OcrEngine.all_available_languages[0] # 시스템 기본 혹은 한국어
-            self.ocr_engine = ocr.OcrEngine.try_create_from_language(lang)
+            try:
+                # 사용 가능한 언어 목록 확인
+                supported_langs = ocr.OcrEngine.available_recognizer_languages
+                
+                # 1. 한국어 우선 검색
+                target_lang = next((l for l in supported_langs if "ko" in l.language_tag.lower()), None)
+                
+                # 2. 한국어가 없으면 첫 번째 사용 가능한 언어 선택
+                if not target_lang and len(supported_langs) > 0:
+                    target_lang = supported_langs[0]
+                
+                if target_lang:
+                    self.ocr_engine = ocr.OcrEngine.try_create_from_language(target_lang)
+                    print(f"[ScreenCapture] OCR 엔진 시작 언어: {target_lang.language_tag}")
+                else:
+                    # 3. 최후의 수단: 유저 프로필 기준 생성
+                    self.ocr_engine = ocr.OcrEngine.try_create_from_user_profile_languages()
+            except Exception as e:
+                print(f"[ScreenCapture] 엔진 초기화 실패: {e}")
         
         self.on_song_changed: Optional[Callable[[str], None]] = None
         self.on_screen_changed: Optional[Callable[[bool], None]] = None
@@ -158,30 +176,36 @@ class ScreenCapture:
             
         return (int(indices.min()), int(indices.max()))
 
-    async def _ocr_windows(self, img_bgra: np.ndarray) -> str:
+async def _ocr_windows(self, img_bgra: np.ndarray) -> str:
         """Windows.Media.Ocr 엔진을 사용한 고속 인식"""
         if not WINDOWS_OCR_AVAILABLE or self.ocr_engine is None:
             return ""
 
-        # 이미지를 SoftwareBitmap으로 변환
-        height, width, _ = img_bgra.shape
-        # 전처리: 흰색 텍스트 강조 (필요 시)
-        gray = cv2.cvtColor(img_bgra, cv2.COLOR_BGRA2GRAY)
-        _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
-        
-        # 메모리 스트림을 통해 변환
-        success, encoded_img = cv2.imencode('.bmp', thresh)
-        if not success: return ""
-        
-        stream = streams.InMemoryRandomAccessStream()
-        writer = streams.DataWriter(stream)
-        writer.write_bytes(encoded_img.tobytes())
-        await writer.store_async()
-        stream.seek(0)
-        
-        decoder = await imaging.BitmapDecoder.create_async(stream)
-        software_bitmap = await decoder.get_software_bitmap_async()
-        
-        # OCR 실행
-        result = await self.ocr_engine.recognize_async(software_bitmap)
-        return result.text.strip()
+        try:
+            height, width, _ = img_bgra.shape
+            
+            # 전처리: 흑백 전환 및 이진화 (글자 강조)
+            gray = cv2.cvtColor(img_bgra, cv2.COLOR_BGRA2GRAY)
+            _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
+            
+            # OpenCV 이미지를 Windows Stream으로 변환
+            success, encoded_img = cv2.imencode('.bmp', thresh)
+            if not success: return ""
+            
+            data_writer = streams.DataWriter()
+            data_writer.write_bytes(encoded_img.tobytes())
+            
+            stream = streams.InMemoryRandomAccessStream()
+            await data_writer.store_async(stream)
+            data_writer.detach_stream()
+            stream.seek(0)
+            
+            decoder = await imaging.BitmapDecoder.create_async(stream)
+            software_bitmap = await decoder.get_software_bitmap_async()
+            
+            # OCR 실행
+            result = await self.ocr_engine.recognize_async(software_bitmap)
+            return result.text.strip()
+        except Exception as e:
+            print(f"[ScreenCapture] OCR 실행 오류: {e}")
+            return ""
