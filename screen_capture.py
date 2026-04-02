@@ -1,65 +1,48 @@
-"""
-화면 캡처 + 선곡화면 감지 + 곡명 OCR
-
-감지 전략:
-1. 하단 힌트바 앵커 픽셀로 선곡화면 여부 판별
-2. 오른쪽 리스트에서 주황-보라 하이라이트 행 Y좌표 탐색
-3. 해당 행의 곡명 텍스트만 OCR
-"""
-
 import time
 import threading
+import asyncio
 import numpy as np
 from typing import Optional, Callable
+import mss
+import cv2
+
+# Windows OCR 관련 임포트
+try:
+    import winrt.windows.media.ocr as ocr
+    import winrt.windows.graphics.imaging as imaging
+    import winrt.windows.storage.streams as streams
+    WINDOWS_OCR_AVAILABLE = True
+except ImportError:
+    WINDOWS_OCR_AVAILABLE = False
+
 from window_tracker import WindowTracker, WindowRect
 
-try:
-    import mss
-    import cv2
-    MSS_AVAILABLE = True
-except ImportError:
-    print("[ScreenCapture] mss/cv2 없음 - 더미 모드")
-    MSS_AVAILABLE = False
-
-try:
-    import easyocr
-    reader = easyocr.Reader(["ko", "en"], gpu=False, verbose=False)
-    OCR_AVAILABLE = True
-    print("[ScreenCapture] EasyOCR 초기화 완료")
-except ImportError:
-    print("[ScreenCapture] easyocr 없음 - OCR 비활성화")
-    OCR_AVAILABLE = False
-
-
 # ------------------------------------------------------------------
-# 비율 상수 (1920x1080 기준으로 측정, 비율로 저장)
+# 설정 상수 (비율 기반)
 # ------------------------------------------------------------------
 
-# 선곡화면 앵커: 하단 힌트바 "Esc 메뉴" 근처 흰색 텍스트 영역
-ANCHOR_REGION = (0.88, 0.972, 0.99, 0.995)
-
-# 앵커 판별: 해당 영역의 평균 밝기가 임계값 이상이면 선곡화면
-ANCHOR_BRIGHTNESS_THRESHOLD = 150
-
-# 곡 리스트 영역 (하이라이트 행 탐색 범위)
-LIST_REGION = (0.188, 0.08, 0.595, 0.955)
-
-# 하이라이트 색상 범위 (HSV)
-# 주황(~#E8873A): H=20~35, S=150~255, V=180~255
-# 보라(~#9B59B6): H=260~290 → OpenCV HSV에서 H는 절반이라 130~145
-HIGHLIGHT_HUE_RANGES = [
-    (15, 35),    # 주황 계열
-    (130, 150),  # 보라 계열
+# 1. 앵커 포인트 (픽셀 방식): 하단 힌트바 특정 지점의 RGB 체크
+# [Y비율, X비율, 목표RGB(BGR순서)]
+ANCHOR_POINTS = [
+    (0.985, 0.900, (255, 255, 255)), # 하단 텍스트 흰색 영역
+    (0.985, 0.100, (180, 180, 180))  # 하단 가이드 바 배경
 ]
-HIGHLIGHT_SAT_MIN = 100
-HIGHLIGHT_VAL_MIN = 150
+ANCHOR_TOLERANCE = 30 # 색상 오차 허용 범위
 
-# 하이라이트 행에서 곡명 텍스트 X 범위
-TITLE_X_RATIO = (0.215, 0.475)
+# 2. 하이라이트 행 탐색 (수직 샘플링용 X 위치)
+# 리스트 영역 내에서 주황/보라색이 가장 잘 드러나는 X 좌표 비율
+SAMPLING_X_RATIO = 0.20 
 
-# OCR 폴링 주기
-OCR_INTERVAL = 0.4  # 초
+# 3. 곡명 OCR 영역 (하이라이트 행 기준 상대적 X 범위)
+TITLE_X_START = 0.22
+TITLE_X_END = 0.50
 
+# 4. 하이라이트 색상 (HSV)
+HIGHLIGHT_HUE_RANGES = [(15, 35), (130, 150)] # 주황, 보라
+HIGHLIGHT_SAT_MIN = 120
+HIGHLIGHT_VAL_MIN = 180
+
+OCR_INTERVAL = 0.3 # Windows OCR은 빠르므로 주기를 약간 당겨도 무방합니다.
 
 class ScreenCapture:
     def __init__(self, tracker: WindowTracker):
@@ -68,162 +51,137 @@ class ScreenCapture:
         self._thread: Optional[threading.Thread] = None
         self._last_title = ""
         self._is_song_select = False
-
-        # 콜백
+        
+        # Windows OCR 엔진 초기화 (한국어 우선)
+        if WINDOWS_OCR_AVAILABLE:
+            lang = ocr.OcrEngine.all_available_languages[0] # 시스템 기본 혹은 한국어
+            self.ocr_engine = ocr.OcrEngine.try_create_from_language(lang)
+        
         self.on_song_changed: Optional[Callable[[str], None]] = None
-        self.on_screen_changed: Optional[Callable[[bool], None]] = None  # True=선곡화면 진입
+        self.on_screen_changed: Optional[Callable[[bool], None]] = None
 
     def start(self):
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
-        print("[ScreenCapture] 시작됨")
+        print(f"[ScreenCapture] 시작됨 (Windows OCR: {WINDOWS_OCR_AVAILABLE})")
 
     def stop(self):
         self._running = False
 
-    # ------------------------------------------------------------------
-    # 메인 루프
-    # ------------------------------------------------------------------
-
     def _loop(self):
-        if not MSS_AVAILABLE:
-            print("[ScreenCapture] mss 없음, 더미 루프 실행")
-            while self._running:
-                time.sleep(OCR_INTERVAL)
-            return
-
         with mss.mss() as sct:
             while self._running:
                 rect = self.tracker.rect
-                if rect is None:
-                    time.sleep(0.5)
-                    continue
-
-                # 게임이 포커스가 아니면 처리 안 함
-                if not self.tracker.is_foreground():
+                if rect is None or not self.tracker.is_foreground():
                     time.sleep(0.5)
                     continue
 
                 try:
                     self._process_frame(sct, rect)
                 except Exception as e:
-                    print(f"[ScreenCapture] 프레임 처리 오류: {e}")
+                    print(f"[ScreenCapture] 오류: {e}")
 
                 time.sleep(OCR_INTERVAL)
 
     def _process_frame(self, sct, rect: WindowRect):
-        # 1. 선곡화면 앵커 체크 (가벼운 연산 먼저)
-        is_song_select = self._check_anchor(sct, rect)
+        # 1. 앵커 포인트 체크 (가장 빠름)
+        is_song_select = self._check_anchors(sct, rect)
 
         if is_song_select != self._is_song_select:
             self._is_song_select = is_song_select
-            print(f"[ScreenCapture] 화면 전환: {'선곡화면' if is_song_select else '기타'}")
             if self.on_screen_changed:
                 self.on_screen_changed(is_song_select)
 
         if not is_song_select:
             return
 
-        # 2. 하이라이트 행 탐색 + 곡명 OCR
-        title = self._detect_selected_song(sct, rect)
-        if title and title != self._last_title:
-            self._last_title = title
-            print(f"[ScreenCapture] 곡 변경 감지: {title}")
-            if self.on_song_changed:
-                self.on_song_changed(title)
+        # 2. 수직 샘플링으로 선택된 행 찾기
+        target_y_range = self._find_highlight_row_y(sct, rect)
+        
+        if target_y_range:
+            y_start, y_end = target_y_range
+            # 3. 곡 제목 영역만 정밀 크롭
+            title_region = {
+                "top": rect.top + y_start,
+                "left": rect.left + int(rect.width * TITLE_X_START),
+                "width": int(rect.width * (TITLE_X_END - TITLE_X_START)),
+                "height": y_end - y_start
+            }
+            img = np.array(sct.grab(title_region))
+            
+            # 4. Windows OCR 실행 (비동기 함수를 동기적으로 호출)
+            title = asyncio.run(self._ocr_windows(img))
+            
+            if title and title != self._last_title:
+                self._last_title = title
+                if self.on_song_changed:
+                    self.on_song_changed(title)
 
-    # ------------------------------------------------------------------
-    # 선곡화면 앵커 체크
-    # ------------------------------------------------------------------
+    def _check_anchors(self, sct, rect: WindowRect) -> bool:
+        """특정 좌표의 색상을 검사하여 선곡 화면인지 판별"""
+        for y_rat, x_rat, target_rgb in ANCHOR_POINTS:
+            px_region = {
+                "top": rect.top + int(rect.height * y_rat),
+                "left": rect.left + int(rect.width * x_rat),
+                "width": 1, "height": 1
+            }
+            px = np.array(sct.grab(px_region))[0][0][:3] # BGR
+            # BGR -> RGB 순서 고려하여 거리 계산
+            dist = np.linalg.norm(px - np.array(target_rgb[::-1]))
+            if dist > ANCHOR_TOLERANCE:
+                return False
+        return True
 
-    def _check_anchor(self, sct, rect: WindowRect) -> bool:
-        region = rect.region(*ANCHOR_REGION)
-        img = np.array(sct.grab(region))
-        gray = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
-        brightness = gray.mean()
-        return brightness > ANCHOR_BRIGHTNESS_THRESHOLD
+    def _find_highlight_row_y(self, sct, rect: WindowRect) -> Optional[tuple]:
+        """수직 샘플링(X축 한 줄 스캔)으로 하이라이트 행의 Y 시작/끝 좌표 반환"""
+        sample_region = {
+            "top": rect.top,
+            "left": rect.left + int(rect.width * SAMPLING_X_RATIO),
+            "width": 1,
+            "height": rect.height
+        }
+        # 한 줄(Column)만 가져와서 HSV 변환
+        line_img = np.array(sct.grab(sample_region))
+        line_hsv = cv2.cvtColor(line_img, cv2.COLOR_BGRA2BGR)
+        line_hsv = cv2.cvtColor(line_hsv, cv2.COLOR_BGR2HSV)
 
-    # ------------------------------------------------------------------
-    # 하이라이트 행 탐색
-    # ------------------------------------------------------------------
-
-    def _detect_selected_song(self, sct, rect: WindowRect) -> Optional[str]:
-        # 리스트 전체 영역 캡처
-        region = rect.region(*LIST_REGION)
-        img = np.array(sct.grab(region))
-        bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-
-        # 하이라이트 색상 마스크 생성
-        mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+        # 하이라이트 색상 마스크 (주황/보라)
+        mask = np.zeros(line_hsv.shape[:2], dtype=np.uint8)
         for h_min, h_max in HIGHLIGHT_HUE_RANGES:
-            m = cv2.inRange(
-                hsv,
-                (h_min, HIGHLIGHT_SAT_MIN, HIGHLIGHT_VAL_MIN),
-                (h_max, 255, 255),
-            )
+            m = cv2.inRange(line_hsv, (h_min, HIGHLIGHT_SAT_MIN, HIGHLIGHT_VAL_MIN), (h_max, 255, 255))
             mask = cv2.bitwise_or(mask, m)
 
-        # 행별로 하이라이트 픽셀 수 집계
-        row_sums = mask.sum(axis=1)
-        img_w = img.shape[1]
-        threshold = img_w * 0.3  # 행 너비의 30% 이상이 하이라이트색이면 해당 행
-
-        highlight_rows = np.where(row_sums > threshold)[0]
-        if len(highlight_rows) == 0:
+        indices = np.where(mask > 0)[0]
+        if len(indices) < 20: # 너무 적은 픽셀은 무시
             return None
+            
+        return (int(indices.min()), int(indices.max()))
 
-        # 하이라이트 행의 중앙 Y
-        row_mid = int(highlight_rows.mean())
-        row_h = max(len(highlight_rows), 30)
+    async def _ocr_windows(self, img_bgra: np.ndarray) -> str:
+        """Windows.Media.Ocr 엔진을 사용한 고속 인식"""
+        if not WINDOWS_OCR_AVAILABLE or self.ocr_engine is None:
+            return ""
 
-        # 곡명 텍스트 영역 크롭
-        list_region = rect.region(*LIST_REGION)
-        title_x1 = list_region["left"] + int(list_region["width"] * (TITLE_X_RATIO[0] - LIST_REGION[0]) / (LIST_REGION[2] - LIST_REGION[0]))
-        title_x2 = list_region["left"] + int(list_region["width"] * (TITLE_X_RATIO[1] - LIST_REGION[0]) / (LIST_REGION[2] - LIST_REGION[0]))
-
-        y1 = max(0, row_mid - row_h // 2)
-        y2 = min(img.shape[0], row_mid + row_h // 2)
-        title_crop = bgr[y1:y2, :int(img_w * 0.75)]
-
-        return self._ocr_title(title_crop)
-
-    # ------------------------------------------------------------------
-    # OCR
-    # ------------------------------------------------------------------
-
-    def _ocr_title(self, img_bgr: np.ndarray) -> Optional[str]:
-        if not OCR_AVAILABLE:
-            return None
-
-        # 대비 향상
-        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-        results = reader.readtext(thresh, detail=0, paragraph=True)
-        if not results:
-            return None
-
-        # 가장 긴 텍스트를 곡명으로 선택
-        title = max(results, key=len).strip()
-        return title if title else None
-
-
-if __name__ == "__main__":
-    from window_tracker import WindowTracker
-
-    tracker = WindowTracker()
-    tracker.start()
-
-    capture = ScreenCapture(tracker)
-    capture.on_song_changed = lambda t: print(f">>> 곡: {t}")
-    capture.on_screen_changed = lambda s: print(f">>> 선곡화면: {s}")
-    capture.start()
-
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        capture.stop()
-        tracker.stop()
+        # 이미지를 SoftwareBitmap으로 변환
+        height, width, _ = img_bgra.shape
+        # 전처리: 흰색 텍스트 강조 (필요 시)
+        gray = cv2.cvtColor(img_bgra, cv2.COLOR_BGRA2GRAY)
+        _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+        
+        # 메모리 스트림을 통해 변환
+        success, encoded_img = cv2.imencode('.bmp', thresh)
+        if not success: return ""
+        
+        stream = streams.InMemoryRandomAccessStream()
+        writer = streams.DataWriter(stream)
+        writer.write_bytes(encoded_img.tobytes())
+        await writer.store_async()
+        stream.seek(0)
+        
+        decoder = await imaging.BitmapDecoder.create_async(stream)
+        software_bitmap = await decoder.get_software_bitmap_async()
+        
+        # OCR 실행
+        result = await self.ocr_engine.recognize_async(software_bitmap)
+        return result.text.strip()

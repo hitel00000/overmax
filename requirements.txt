@@ -1,14 +1,15 @@
-# DJMAX Respect V 난이도 오버레이
+# DJMAX Respect V 난이도 오버레이 - Optimized for Windows OCR
 # Python 3.10+ 권장
 
-# 화면 캡처
+# 화면 캡처 및 이미지 처리
 mss>=9.0.1
-
-# 컴퓨터 비전 (하이라이트 감지)
 opencv-python>=4.9.0
+numpy>=1.26.0
 
-# OCR (한글+영어)
-easyocr>=1.7.1
+# Windows OCR API (핵심 엔진 교체) [cite: 36]
+winrt-Windows.Media.Ocr
+winrt-Windows.Graphics.Imaging
+winrt-Windows.Storage.Streams
 
 # Windows API (창 추적)
 pywin32>=306
@@ -21,6 +22,3 @@ rapidfuzz>=3.6.1
 
 # HTTP (V-Archive API)
 httpx>=0.27.0
-
-# 수치 연산 (OpenCV 의존)
-numpy>=1.26.0

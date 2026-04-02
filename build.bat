@@ -51,16 +51,9 @@ if errorlevel 1 (
 echo        Dependencies OK
 
 :: --------------------------------------------------
-:: 3. EasyOCR model check
-::    Models are NOT bundled - downloaded on first run
+:: 3. EasyOCR model check (Removed - Using Windows OCR)
 :: --------------------------------------------------
-echo [3/6] Checking EasyOCR models...
-python -c "import easyocr; easyocr.Reader(['ko', 'en'], gpu=False, verbose=False)"
-if errorlevel 1 (
-    echo [WARN] EasyOCR model check failed - will download on first run.
-) else (
-    echo        EasyOCR models OK
-)
+echo [3/6] Skipping model check (Using Windows Native OCR)...
 
 :: --------------------------------------------------
 :: 4. Clean previous build
