@@ -320,12 +320,14 @@ class OverlayController:
         self._app: Optional[QApplication] = None
         self._window: Optional[OverlayWindow] = None
         self._tray_icon: Optional[QSystemTrayIcon] = None
+        self._debug_log_cb = None   # set by main.py after DebugController init
 
     def notify_song(self, title: str):
         """OCR 스레드에서 호출 - 곡명으로 패턴 조회 후 시그널 emit"""
+        self.log(f"곡 검색: '{title}'")
         song = self.db.search(title)
         if not song:
-            print(f"[Overlay] '{title}' DB에서 찾을 수 없음")
+            self.log(f"'{title}' DB에서 찾을 수 없음")
             return
 
         all_patterns = []
@@ -336,12 +338,20 @@ class OverlayController:
         self.signals.song_changed.emit(song["name"], all_patterns)
 
     def notify_screen(self, is_song_select: bool):
+        self.log(f"화면 알림: {'선곡화면' if is_song_select else '기타화면'}")
         self.signals.screen_changed.emit(is_song_select)
 
     def notify_window_pos(self, left, top, width, height):
+        self.log(f"창 위치: ({left},{top}) {width}x{height}")
         self.signals.position_changed.emit(left, top, width, height)
 
-    def run(self):
+    def log(self, msg: str):
+        full = f"[Overlay] {msg}"
+        print(full)
+        if self._debug_log_cb:
+            self._debug_log_cb(full)
+
+    def run(self, debug_ctrl=None):
         """Qt 이벤트 루프 실행 (메인 스레드에서 호출)"""
         if not PYQT_AVAILABLE:
             print("[Overlay] PyQt6 없음, 콘솔 모드로 실행")
@@ -354,6 +364,10 @@ class OverlayController:
         self._app.setQuitOnLastWindowClosed(False)
         self._window = OverlayWindow(self.db, self.signals)
         self._window.hide()  # 처음엔 숨김
+
+        # 디버그 창 생성 (QApplication 생성 후)
+        if debug_ctrl is not None:
+            debug_ctrl.create_window()
 
         # 트레이 아이콘 설정
         self._setup_tray_icon()
