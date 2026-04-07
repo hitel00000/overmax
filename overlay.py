@@ -33,6 +33,26 @@ OVERLAY_SETTINGS = SETTINGS.get("overlay", {})
 TOGGLE_HOTKEY = str(OVERLAY_SETTINGS.get("toggle_hotkey", "F9"))
 TRAY_TOOLTIP = str(OVERLAY_SETTINGS.get("tray_tooltip", "Overmax - DJMAX Respect V 난이도 오버레이"))
 HINT_LABEL = str(OVERLAY_SETTINGS.get("hint_label", f"{TOGGLE_HOTKEY}: 표시/숨김  |  드래그로 위치 이동"))
+SCREEN_CAPTURE_SETTINGS = SETTINGS.get("screen_capture", {})
+
+LIST_X_START = float(SCREEN_CAPTURE_SETTINGS.get("list_x_start", 0.031))
+LIST_X_END = float(SCREEN_CAPTURE_SETTINGS.get("list_x_end", 0.167))
+LOGO_X_START = float(SCREEN_CAPTURE_SETTINGS.get("logo_x_start", 0.028))
+LOGO_X_END = float(SCREEN_CAPTURE_SETTINGS.get("logo_x_end", 0.210))
+LOGO_Y_START = float(SCREEN_CAPTURE_SETTINGS.get("logo_y_start", 0.015))
+LOGO_Y_END = float(SCREEN_CAPTURE_SETTINGS.get("logo_y_end", 0.090))
+LEFT_TITLE_X_START = float(SCREEN_CAPTURE_SETTINGS.get("left_title_x_start", 0.028))
+LEFT_TITLE_X_END = float(SCREEN_CAPTURE_SETTINGS.get("left_title_x_end", 0.265))
+LEFT_TITLE_Y_START = float(SCREEN_CAPTURE_SETTINGS.get("left_title_y_start", 0.180))
+LEFT_TITLE_Y_END = float(SCREEN_CAPTURE_SETTINGS.get("left_title_y_end", 0.305))
+RIGHT_TITLE_X_START = float(SCREEN_CAPTURE_SETTINGS.get("right_title_x_start", 0.325))
+RIGHT_TITLE_X_END = float(SCREEN_CAPTURE_SETTINGS.get("right_title_x_end", 0.660))
+RIGHT_TITLE_Y_START = float(SCREEN_CAPTURE_SETTINGS.get("right_title_y_start", 0.535))
+RIGHT_TITLE_Y_END = float(SCREEN_CAPTURE_SETTINGS.get("right_title_y_end", 0.602))
+LEFT_COMPOSER_X_START = float(SCREEN_CAPTURE_SETTINGS.get("left_composer_x_start", 0.028))
+LEFT_COMPOSER_X_END = float(SCREEN_CAPTURE_SETTINGS.get("left_composer_x_end", 0.300))
+LEFT_COMPOSER_Y_START = float(SCREEN_CAPTURE_SETTINGS.get("left_composer_y_start", 0.245))
+LEFT_COMPOSER_Y_END = float(SCREEN_CAPTURE_SETTINGS.get("left_composer_y_end", 0.285))
 
 
 # ------------------------------------------------------------------
@@ -164,6 +184,99 @@ class ButtonModePanel(QFrame):
     def clear(self):
         for card in self._cards.values():
             card.clear()
+
+
+class RoiOverlayWindow(QWidget):
+    """게임 화면 위에 OCR/검출 ROI를 선으로 표시하는 디버그 오버레이"""
+    def __init__(self):
+        super().__init__()
+        self._enabled = False
+        self._has_rect = False
+        self._setup_window()
+
+    def _setup_window(self):
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+    def set_game_rect(self, left: int, top: int, width: int, height: int):
+        self._has_rect = width > 0 and height > 0
+        if not self._has_rect:
+            self.hide()
+            return
+        self.setGeometry(left, top, width, height)
+        if self._enabled:
+            self.show()
+        self.update()
+
+    def set_enabled(self, enabled: bool):
+        self._enabled = enabled
+        if enabled and self._has_rect:
+            self.show()
+            self.raise_()
+        else:
+            self.hide()
+        self.update()
+
+    def is_enabled(self) -> bool:
+        return self._enabled
+
+    def _ratio_rect(self, rx1: float, ry1: float, rx2: float, ry2: float) -> QRect:
+        x = int(self.width() * rx1)
+        y = int(self.height() * ry1)
+        w = max(1, int(self.width() * (rx2 - rx1)))
+        h = max(1, int(self.height() * (ry2 - ry1)))
+        return QRect(x, y, w, h)
+
+    def _draw_box(self, painter: QPainter, rect: QRect, color: QColor, label: str):
+        painter.setPen(QPen(color, 2))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(rect)
+        painter.setPen(QPen(color, 1))
+        painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
+        painter.drawText(rect.left() + 4, max(12, rect.top() - 4), label)
+
+    def paintEvent(self, event):
+        if not self._enabled or not self._has_rect:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        self._draw_box(
+            painter,
+            self._ratio_rect(LOGO_X_START, LOGO_Y_START, LOGO_X_END, LOGO_Y_END),
+            QColor("#CC66FF"),
+            "LOGO (FREESTYLE)",
+        )
+        self._draw_box(
+            painter,
+            self._ratio_rect(LIST_X_START, 0.0, LIST_X_END, 1.0),
+            QColor("#22D3EE"),
+            "LIST SCAN",
+        )
+        self._draw_box(
+            painter,
+            self._ratio_rect(LEFT_TITLE_X_START, LEFT_TITLE_Y_START, LEFT_TITLE_X_END, LEFT_TITLE_Y_END),
+            QColor("#FF4D4D"),
+            "LEFT TITLE OCR",
+        )
+        self._draw_box(
+            painter,
+            self._ratio_rect(RIGHT_TITLE_X_START, RIGHT_TITLE_Y_START, RIGHT_TITLE_X_END, RIGHT_TITLE_Y_END),
+            QColor("#4D7CFF"),
+            "RIGHT TITLE OCR",
+        )
+        self._draw_box(
+            painter,
+            self._ratio_rect(LEFT_COMPOSER_X_START, LEFT_COMPOSER_Y_START, LEFT_COMPOSER_X_END, LEFT_COMPOSER_Y_END),
+            QColor("#FFD84D"),
+            "COMPOSER OCR",
+        )
 
 
 # ------------------------------------------------------------------
@@ -325,9 +438,11 @@ class OverlayController:
         self.signals = OverlaySignals()
         self._app: Optional[QApplication] = None
         self._window: Optional[OverlayWindow] = None
+        self._roi_window: Optional[RoiOverlayWindow] = None
         self._tray_icon: Optional[QSystemTrayIcon] = None
         self._debug_log_cb = None   # set by main.py after DebugController init
         self._debug_toggle_cb = None
+        self._last_window_rect: Optional[tuple[int, int, int, int]] = None
 
     def notify_song(self, title: str, composer: str = ""):
         """OCR 스레드에서 호출 - 곡명/작곡가로 패턴 조회 후 시그널 emit"""
@@ -353,7 +468,25 @@ class OverlayController:
 
     def notify_window_pos(self, left, top, width, height):
         self.log(f"창 위치: ({left},{top}) {width}x{height}")
+        self._last_window_rect = (left, top, width, height)
         self.signals.position_changed.emit(left, top, width, height)
+
+    def set_roi_overlay_enabled(self, enabled: bool):
+        if self._roi_window is None:
+            return
+        self._roi_window.set_enabled(enabled)
+        state = "ON" if enabled else "OFF"
+        self.log(f"ROI 영역 표시: {state}")
+        if enabled and self._last_window_rect is not None:
+            left, top, width, height = self._last_window_rect
+            self._roi_window.set_game_rect(left, top, width, height)
+
+    def toggle_roi_overlay(self):
+        if self._roi_window is None:
+            return False
+        new_state = not self._roi_window.is_enabled()
+        self.set_roi_overlay_enabled(new_state)
+        return new_state
 
     def log(self, msg: str):
         full = f"[Overlay] {msg}"
@@ -374,10 +507,14 @@ class OverlayController:
         self._app.setQuitOnLastWindowClosed(False)
         self._window = OverlayWindow(self.db, self.signals)
         self._window.hide()  # 처음엔 숨김
+        self._roi_window = RoiOverlayWindow()
+        self._roi_window.hide()  # 기본 OFF
+        self.signals.position_changed.connect(self._roi_window.set_game_rect)
 
         # 디버그 창 생성 (QApplication 생성 후)
         if debug_ctrl is not None:
             debug_ctrl.create_window()
+            debug_ctrl.set_roi_toggle_callback(self.set_roi_overlay_enabled)
             self._debug_toggle_cb = debug_ctrl.toggle_window
         else:
             self._debug_toggle_cb = None

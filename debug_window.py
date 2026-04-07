@@ -6,7 +6,7 @@ ScreenCapture / OverlayController 가 emit 하는 로그 문자열을
 on_debug_log 콜백 → DebugSignals.log_received → DebugWindow._append_log 경로로 수신.
 """
 
-from typing import Optional
+from typing import Optional, Callable
 from settings import SETTINGS
 
 try:
@@ -51,6 +51,7 @@ class DebugWindow(QWidget):
         self.signals = signals
         self._paused = False
         self._line_count = 0
+        self._roi_toggle_cb: Optional[Callable[[bool], None]] = None
 
         self._setup_window()
         self._setup_ui()
@@ -93,6 +94,16 @@ class DebugWindow(QWidget):
         """)
         clear_btn.clicked.connect(self._clear)
         header.addWidget(clear_btn)
+
+        self._roi_btn = QPushButton("ROI 표시 OFF")
+        self._roi_btn.setCheckable(True)
+        self._roi_btn.setStyleSheet("""
+            QPushButton { background: #2A2A4A; color: #CCCCCC; border: 1px solid #444; border-radius: 4px; padding: 3px 10px; }
+            QPushButton:checked { background: #1F5A3A; color: #B5EAD7; }
+        """)
+        self._roi_btn.setEnabled(False)
+        self._roi_btn.toggled.connect(self._on_roi_toggled)
+        header.addWidget(self._roi_btn)
 
         layout.addLayout(header)
 
@@ -139,6 +150,18 @@ class DebugWindow(QWidget):
         self._log_text.clear()
         self._line_count = 0
         self._status.setText("로그 지워짐")
+
+    def set_roi_toggle_callback(self, callback: Optional[Callable[[bool], None]]):
+        self._roi_toggle_cb = callback
+        self._roi_btn.setEnabled(callback is not None)
+        if callback is None:
+            self._roi_btn.setChecked(False)
+            self._roi_btn.setText("ROI 표시 OFF")
+
+    def _on_roi_toggled(self, checked: bool):
+        self._roi_btn.setText("ROI 표시 ON" if checked else "ROI 표시 OFF")
+        if self._roi_toggle_cb:
+            self._roi_toggle_cb(checked)
 
     def _append_log(self, msg: str):
         if self._paused:
@@ -192,6 +215,7 @@ class DebugController:
     def __init__(self):
         self.signals = DebugSignals()
         self._window: Optional[DebugWindow] = None
+        self._roi_toggle_cb: Optional[Callable[[bool], None]] = None
 
     def create_window(self) -> Optional["DebugWindow"]:
         """Qt App 생성 후에 호출해야 함"""
@@ -199,6 +223,7 @@ class DebugController:
             return None
         if self._window is None:
             self._window = DebugWindow(self.signals)
+            self._window.set_roi_toggle_callback(self._roi_toggle_cb)
         return self._window
 
     def show_window(self):
@@ -228,3 +253,8 @@ class DebugController:
     def log(self, msg: str):
         """스레드-안전 로그 emit"""
         self.signals.log_received.emit(msg)
+
+    def set_roi_toggle_callback(self, callback: Optional[Callable[[bool], None]]):
+        self._roi_toggle_cb = callback
+        if self._window is not None:
+            self._window.set_roi_toggle_callback(callback)

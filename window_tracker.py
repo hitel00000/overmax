@@ -61,6 +61,7 @@ class WindowTracker:
         self._thread: Optional[threading.Thread] = None
         self._on_found: Optional[Callable] = None
         self._on_lost: Optional[Callable] = None
+        self._on_changed: Optional[Callable] = None
 
     @property
     def rect(self) -> Optional[WindowRect]:
@@ -79,6 +80,10 @@ class WindowTracker:
         """창 소실 시 콜백"""
         self._on_lost = callback
 
+    def on_changed(self, callback: Callable):
+        """창 위치/크기 변경 시 콜백"""
+        self._on_changed = callback
+
     def start(self):
         self._running = True
         self._thread = threading.Thread(target=self._poll_loop, daemon=True)
@@ -92,6 +97,7 @@ class WindowTracker:
 
     def _poll_loop(self):
         was_found = False
+        prev_rect_tuple: Optional[tuple[int, int, int, int]] = None
         while self._running:
             rect = self._get_game_rect()
             with self._lock:
@@ -102,10 +108,18 @@ class WindowTracker:
                 print(f"[WindowTracker] 게임 창 발견: {rect.width}x{rect.height} @ ({rect.left},{rect.top})")
                 if self._on_found:
                     self._on_found(rect)
+                prev_rect_tuple = (rect.left, rect.top, rect.width, rect.height)
             elif not is_found and was_found:
                 print("[WindowTracker] 게임 창 소실")
                 if self._on_lost:
                     self._on_lost()
+                prev_rect_tuple = None
+            elif is_found and was_found:
+                current_tuple = (rect.left, rect.top, rect.width, rect.height)
+                if current_tuple != prev_rect_tuple:
+                    if self._on_changed:
+                        self._on_changed(rect)
+                    prev_rect_tuple = current_tuple
             was_found = is_found
 
             time.sleep(POLL_INTERVAL)

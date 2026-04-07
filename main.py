@@ -58,8 +58,12 @@ def main():
     def on_window_lost():
         debug_ctrl.log("[Main] 게임 창 소실")
 
+    def on_window_changed(rect):
+        controller.notify_window_pos(rect.left, rect.top, rect.width, rect.height)
+
     tracker.on_found(on_window_found)
     tracker.on_lost(on_window_lost)
+    tracker.on_changed(on_window_changed)
     tracker.start()
 
     # 5. 화면 캡처 + OCR
