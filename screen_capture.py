@@ -83,17 +83,23 @@ RIGHT_TITLE_Y_END   = float(SCREEN_CAPTURE_SETTINGS.get("right_title_y_end", 0.6
 # 하이라이트 y를 찾았을 때 우측 ROI에 추가할 여유(padding px)
 RIGHT_TITLE_PAD_PX = int(SCREEN_CAPTURE_SETTINGS.get("right_title_pad_px", 6))
 
+# 좌측 패널 작곡가 OCR ROI
+LEFT_COMPOSER_X_START = float(SCREEN_CAPTURE_SETTINGS.get("left_composer_x_start", 0.028))
+LEFT_COMPOSER_X_END   = float(SCREEN_CAPTURE_SETTINGS.get("left_composer_x_end", 0.300))
+LEFT_COMPOSER_Y_START = float(SCREEN_CAPTURE_SETTINGS.get("left_composer_y_start", 0.245))
+LEFT_COMPOSER_Y_END   = float(SCREEN_CAPTURE_SETTINGS.get("left_composer_y_end", 0.285))
+
 
 class ScreenCapture:
     def __init__(self, tracker: WindowTracker):
         self.tracker = tracker
         self._running = False
         self._thread: Optional[threading.Thread] = None
-        self._last_title = ""
+        self._last_song_key = ""
         self._is_song_select = False
 
         # 콜백
-        self.on_song_changed:   Optional[Callable[[str], None]]  = None
+        self.on_song_changed:   Optional[Callable[[str, str], None]]  = None
         self.on_screen_changed: Optional[Callable[[bool], None]] = None
         self.on_debug_log:      Optional[Callable[[str], None]]  = None
 
@@ -225,15 +231,25 @@ class ScreenCapture:
         right_raw = await self._ocr_windows(np.array(sct.grab(right_region)))
         right_title = self._normalize_title_text(right_raw)
 
+        composer_region = self._region_from_ratio(
+            rect,
+            LEFT_COMPOSER_X_START, LEFT_COMPOSER_X_END,
+            LEFT_COMPOSER_Y_START, LEFT_COMPOSER_Y_END,
+        )
+        composer_raw = await self._ocr_windows(np.array(sct.grab(composer_region)))
+        composer = self._normalize_composer_text(composer_raw)
+
         title = self._choose_title(left_title, right_title)
         self.log(
-            f"OCR 후보: left='{left_title}' / right='{right_title}' -> 선택='{title}'"
+            f"OCR 후보: left='{left_title}' / right='{right_title}' / "
+            f"composer='{composer}' -> 선택='{title}'"
         )
 
-        if title and title != self._last_title:
-            self._last_title = title
+        song_key = f"{title}::{composer}".strip(":")
+        if title and song_key != self._last_song_key:
+            self._last_song_key = song_key
             if self.on_song_changed:
-                self.on_song_changed(title)
+                self.on_song_changed(title, composer)
 
     def _region_from_ratio(
         self,
@@ -260,6 +276,15 @@ class ScreenCapture:
             title = lines[1]
         title = re.sub(r"\s+", " ", title).strip()
         return title
+
+    def _normalize_composer_text(self, raw: str) -> str:
+        if not raw:
+            return ""
+        lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+        if not lines:
+            return ""
+        composer = re.sub(r"\s+", " ", lines[0]).strip()
+        return composer
 
     def _score_title(self, title: str, prefer_right: bool) -> int:
         if not title:

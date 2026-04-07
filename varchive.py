@@ -5,6 +5,7 @@ songs.json을 로컬 캐시로 사용하거나 API에서 최신 데이터를 가
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Optional
@@ -43,7 +44,7 @@ DIFF_COLORS = dict(VARCHIVE_SETTINGS.get("diff_colors", {
 class VArchiveDB:
     def __init__(self):
         self.songs: list[dict] = []
-        self._title_map: dict[str, dict] = {}  # 곡명 소문자 → song
+        self._title_map: dict[str, list[dict]] = {}  # 곡명 소문자 → song list
 
     # ------------------------------------------------------------------
     # 로드 / 캐시
@@ -94,21 +95,65 @@ class VArchiveDB:
             raise
 
     def _build_index(self):
-        """곡명 소문자 인덱스 구축 (빠른 검색용)"""
+        """곡명 소문자 인덱스 구축 (동명이곡 대응)"""
         self._title_map = {}
         for song in self.songs:
             key = song["name"].lower().strip()
-            self._title_map[key] = song
+            self._title_map.setdefault(key, []).append(song)
 
     # ------------------------------------------------------------------
     # 검색
     # ------------------------------------------------------------------
 
-    def find_exact(self, title: str) -> Optional[dict]:
-        """정확한 곡명 검색 (대소문자 무시)"""
-        return self._title_map.get(title.lower().strip())
+    def _normalize_text(self, value: str) -> str:
+        value = value.lower().strip()
+        return re.sub(r"\s+", "", value)
 
-    def find_fuzzy(self, title: str, threshold: int = FUZZY_THRESHOLD) -> Optional[dict]:
+    def _pick_by_composer(self, songs: list[dict], composer: str) -> Optional[dict]:
+        if not songs:
+            return None
+        if not composer:
+            return songs[0]
+
+        query = self._normalize_text(composer)
+        if not query:
+            return songs[0]
+
+        best_song = None
+        best_score = -1.0
+        for song in songs:
+            song_comp = str(song.get("composer", ""))
+            comp_norm = self._normalize_text(song_comp)
+            score = 0.0
+            if query == comp_norm:
+                score = 200.0
+            elif query and comp_norm and (query in comp_norm or comp_norm in query):
+                score = 150.0
+            elif RAPIDFUZZ_AVAILABLE:
+                score = float(fuzz.WRatio(query, comp_norm))
+            else:
+                import difflib
+                score = float(difflib.SequenceMatcher(None, query, comp_norm).ratio() * 100)
+
+            if score > best_score:
+                best_score = score
+                best_song = song
+
+        return best_song if best_song is not None else songs[0]
+
+    def find_exact(self, title: str, composer: str = "") -> Optional[dict]:
+        """정확한 곡명 검색 (대소문자 무시), 동명이곡은 composer로 분기"""
+        songs = self._title_map.get(title.lower().strip())
+        if not songs:
+            return None
+        return self._pick_by_composer(songs, composer)
+
+    def find_fuzzy(
+        self,
+        title: str,
+        composer: str = "",
+        threshold: int = FUZZY_THRESHOLD,
+    ) -> Optional[dict]:
         """
         퍼지 검색 - OCR 오인식 대응
         threshold: 0~100, 높을수록 엄격
@@ -126,19 +171,22 @@ class VArchiveDB:
             if result:
                 matched_key, score, _ = result
                 print(f"[VArchive] 퍼지매칭: '{title}' → '{matched_key}' (점수: {score})")
-                return self._title_map[matched_key]
+                return self._pick_by_composer(self._title_map[matched_key], composer)
         else:
             # difflib fallback
             matches = difflib.get_close_matches(query, candidates, n=1, cutoff=threshold / 100)
             if matches:
                 print(f"[VArchive] 퍼지매칭(difflib): '{title}' → '{matches[0]}'")
-                return self._title_map[matches[0]]
+                return self._pick_by_composer(self._title_map[matches[0]], composer)
 
         return None
 
-    def search(self, title: str) -> Optional[dict]:
-        """정확 검색 → 퍼지 검색 순으로 시도"""
-        return self.find_exact(title) or self.find_fuzzy(title, threshold=FUZZY_THRESHOLD)
+    def search(self, title: str, composer: str = "") -> Optional[dict]:
+        """정확 검색 → 퍼지 검색 순으로 시도 (composer로 동명이곡 분기)"""
+        return (
+            self.find_exact(title, composer=composer)
+            or self.find_fuzzy(title, composer=composer, threshold=FUZZY_THRESHOLD)
+        )
 
     # ------------------------------------------------------------------
     # 패턴 정보 포맷

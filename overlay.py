@@ -329,12 +329,15 @@ class OverlayController:
         self._debug_log_cb = None   # set by main.py after DebugController init
         self._debug_toggle_cb = None
 
-    def notify_song(self, title: str):
-        """OCR 스레드에서 호출 - 곡명으로 패턴 조회 후 시그널 emit"""
-        self.log(f"곡 검색: '{title}'")
-        song = self.db.search(title)
+    def notify_song(self, title: str, composer: str = ""):
+        """OCR 스레드에서 호출 - 곡명/작곡가로 패턴 조회 후 시그널 emit"""
+        if composer:
+            self.log(f"곡 검색: '{title}' / composer='{composer}'")
+        else:
+            self.log(f"곡 검색: '{title}'")
+        song = self.db.search(title, composer=composer)
         if not song:
-            self.log(f"'{title}' DB에서 찾을 수 없음")
+            self.log(f"'{title}' (composer='{composer}') DB에서 찾을 수 없음")
             return
 
         all_patterns = []

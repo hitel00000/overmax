@@ -65,9 +65,9 @@ def main():
     # 5. 화면 캡처 + OCR
     capture = ScreenCapture(tracker)
 
-    def on_song_changed(title: str):
-        debug_ctrl.log(f"[Main] 곡명 감지: '{title}'")
-        controller.notify_song(title)
+    def on_song_changed(title: str, composer: str):
+        debug_ctrl.log(f"[Main] 곡명 감지: '{title}' / composer: '{composer}'")
+        controller.notify_song(title, composer)
 
     def on_screen_changed(is_song_select: bool):
         debug_ctrl.log(f"[Main] 화면 상태: {'선곡화면' if is_song_select else '기타화면'}")
