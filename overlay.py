@@ -64,6 +64,7 @@ class OverlaySignals(QObject):
     song_changed = pyqtSignal(str, list)   # (곡명, 패턴 정보 리스트)
     screen_changed = pyqtSignal(bool)      # 선곡화면 여부
     position_changed = pyqtSignal(int, int, int, int)  # 창 위치
+    roi_enabled_changed = pyqtSignal(bool)  # ROI 표시 on/off
 
 
 # ------------------------------------------------------------------
@@ -484,6 +485,14 @@ class OverlayController:
         self._last_window_rect = (left, top, width, height)
         self.signals.position_changed.emit(left, top, width, height)
 
+    def notify_window_lost(self):
+        """게임 창 소실 시 오버레이/ROI 상태 정리"""
+        self.log("게임 창 소실 알림 수신: 오버레이 숨김 + ROI OFF")
+        self._last_window_rect = None
+        self.signals.screen_changed.emit(False)
+        self.signals.roi_enabled_changed.emit(False)
+        self.signals.position_changed.emit(0, 0, 0, 0)
+
     def set_roi_overlay_enabled(self, enabled: bool):
         if self._roi_window is None:
             return
@@ -549,6 +558,7 @@ class OverlayController:
         self._roi_window = RoiOverlayWindow()
         self._roi_window.hide()  # 기본 OFF
         self.signals.position_changed.connect(self._roi_window.set_game_rect)
+        self.signals.roi_enabled_changed.connect(self._roi_window.set_enabled)
 
         saved_pos = self._load_overlay_position()
         if saved_pos is not None:

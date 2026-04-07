@@ -57,6 +57,7 @@ def main():
 
     def on_window_lost():
         debug_ctrl.log("[Main] 게임 창 소실")
+        controller.notify_window_lost()
 
     def on_window_changed(rect):
         controller.notify_window_pos(rect.left, rect.top, rect.width, rect.height)
