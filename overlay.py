@@ -38,8 +38,6 @@ HINT_LABEL = str(OVERLAY_SETTINGS.get("hint_label", f"{TOGGLE_HOTKEY}: 표시/�
 OVERLAY_POSITION_FILE = str(OVERLAY_SETTINGS.get("position_file", "overlay_position.json"))
 SCREEN_CAPTURE_SETTINGS = SETTINGS.get("screen_capture", {})
 
-LIST_X_START = float(SCREEN_CAPTURE_SETTINGS.get("list_x_start", 0.031))
-LIST_X_END = float(SCREEN_CAPTURE_SETTINGS.get("list_x_end", 0.167))
 LOGO_X_START = float(SCREEN_CAPTURE_SETTINGS.get("logo_x_start", 0.028))
 LOGO_X_END = float(SCREEN_CAPTURE_SETTINGS.get("logo_x_end", 0.210))
 LOGO_Y_START = float(SCREEN_CAPTURE_SETTINGS.get("logo_y_start", 0.015))
@@ -255,12 +253,6 @@ class RoiOverlayWindow(QWidget):
             self._ratio_rect(LOGO_X_START, LOGO_Y_START, LOGO_X_END, LOGO_Y_END),
             QColor("#CC66FF"),
             "LOGO (FREESTYLE)",
-        )
-        self._draw_box(
-            painter,
-            self._ratio_rect(LIST_X_START, 0.0, LIST_X_END, 1.0),
-            QColor("#22D3EE"),
-            "LIST SCAN",
         )
         self._draw_box(
             painter,

@@ -36,26 +36,6 @@ from window_tracker import WindowTracker, WindowRect
 # ------------------------------------------------------------------
 SCREEN_CAPTURE_SETTINGS = SETTINGS.get("screen_capture", {})
 
-# 곡 리스트 영역 x 범위 (왼쪽 패널)
-LIST_X_START = float(SCREEN_CAPTURE_SETTINGS.get("list_x_start", 0.031))   # x=60/1920
-LIST_X_END   = float(SCREEN_CAPTURE_SETTINGS.get("list_x_end", 0.167))   # x=320/1920
-
-# 수직 샘플링 X (리스트 중앙)
-SAMPLING_X_RATIO = float(SCREEN_CAPTURE_SETTINGS.get("sampling_x_ratio", 0.08))
-
-# 하이라이트 행 감지 (HSV 주황)
-HIGHLIGHT_HUE_MIN  = int(SCREEN_CAPTURE_SETTINGS.get("highlight_hue_min", 10))
-HIGHLIGHT_HUE_MAX  = int(SCREEN_CAPTURE_SETTINGS.get("highlight_hue_max", 32))
-HIGHLIGHT_SAT_MIN  = int(SCREEN_CAPTURE_SETTINGS.get("highlight_sat_min", 130))
-HIGHLIGHT_VAL_MIN  = int(SCREEN_CAPTURE_SETTINGS.get("highlight_val_min", 160))
-
-# 하이라이트 행으로 인정하는 연속 픽셀 높이 (px)
-HIGHLIGHT_ROW_MIN_PX = int(SCREEN_CAPTURE_SETTINGS.get("highlight_row_min_px", 40))
-HIGHLIGHT_ROW_MAX_PX = int(SCREEN_CAPTURE_SETTINGS.get("highlight_row_max_px", 200))
-
-# 각 행에서 주황 픽셀 최소 개수
-HIGHLIGHT_ROW_THRESHOLD = int(SCREEN_CAPTURE_SETTINGS.get("highlight_row_threshold", 8))
-
 OCR_INTERVAL = float(SCREEN_CAPTURE_SETTINGS.get("ocr_interval_sec", 0.35))   # 초
 IDLE_SLEEP_INTERVAL = float(SCREEN_CAPTURE_SETTINGS.get("idle_sleep_sec", 0.5))
 
@@ -318,7 +298,7 @@ class ScreenCapture:
     async def _detect_song_select(self, sct, rect: WindowRect):
         """
         1) 좌상단 FREESTYLE 로고 특징으로 선곡화면 여부를 1차 판정
-        2) 선곡화면이면 기존 주황 하이라이트 클러스터로 선택 행 y 범위를 탐색
+        2) LIST SCAN 없이 고정 OCR ROI 사용
 
         Returns:
             (is_song_select, y_range)  — y_range는 rect 기준 절대 y
@@ -351,51 +331,7 @@ class ScreenCapture:
         if not is_logo_majority:
             return False, None
 
-        scan_region = {
-            "top":    rect.top,
-            "left":   rect.left + int(rect.width * LIST_X_START),
-            "width":  max(1, int(rect.width * (LIST_X_END - LIST_X_START))),
-            "height": rect.height,
-        }
-        col_img = np.array(sct.grab(scan_region))   # (H, W, 4) BGRA
-
-        bgr = cv2.cvtColor(col_img, cv2.COLOR_BGRA2BGR)
-        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-
-        orange_mask = cv2.inRange(
-            hsv,
-            (HIGHLIGHT_HUE_MIN, HIGHLIGHT_SAT_MIN, HIGHLIGHT_VAL_MIN),
-            (HIGHLIGHT_HUE_MAX, 255, 255),
-        )
-
-        row_counts = np.sum(orange_mask > 0, axis=1)
-        highlight_rows = np.where(row_counts > HIGHLIGHT_ROW_THRESHOLD)[0]
-
-        if len(highlight_rows) < HIGHLIGHT_ROW_MIN_PX:
-            # 선곡화면은 맞지만 선택 행 탐지 실패한 경우
-            return True, None
-
-        # 연속 클러스터 탐색
-        clusters = []
-        start = int(highlight_rows[0])
-        prev  = int(highlight_rows[0])
-        for r in highlight_rows[1:]:
-            r = int(r)
-            if r - prev > 5:
-                clusters.append((start, prev))
-                start = r
-            prev = r
-        clusters.append((start, prev))
-
-        valid = [
-            (s, e) for s, e in clusters
-            if HIGHLIGHT_ROW_MIN_PX <= (e - s) <= HIGHLIGHT_ROW_MAX_PX
-        ]
-        if not valid:
-            return True, None
-
-        best_s, best_e = max(valid, key=lambda x: x[1] - x[0])
-        return True, (best_s, best_e)
+        return True, None
 
     async def _detect_freestyle_logo(self, sct, rect: WindowRect) -> bool:
         """
