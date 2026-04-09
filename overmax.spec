@@ -32,9 +32,6 @@ a = Analysis(
         "rapidfuzz",
         "httpx",
         "numpy",
-        "imagehash",
-        "PIL.Image",
-        "skimage.feature",
     ],
     hookspath=[], # 커스텀 훅 불필요
     excludes=[

@@ -5,10 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 import cv2
-import imagehash
 import numpy as np
-from PIL import Image
-from skimage.feature import hog
 
 
 class ImageDB:
@@ -300,22 +297,54 @@ class ImageDB:
 
     @staticmethod
     def _compute_hashes(gray: np.ndarray) -> tuple[str, str, str]:
-        pil_img = Image.fromarray(gray)
-        ph = str(imagehash.phash(pil_img))
-        dh = str(imagehash.dhash(pil_img))
-        ah = str(imagehash.average_hash(pil_img))
+        ph = ImageDB._phash(gray)
+        dh = ImageDB._dhash(gray)
+        ah = ImageDB._ahash(gray)
         return ph, dh, ah
+
+    @staticmethod
+    def _bits_to_hex(bits: np.ndarray) -> str:
+        flat = bits.reshape(-1).astype(np.uint8)
+        packed = np.packbits(flat, bitorder="big")
+        return "".join(f"{b:02x}" for b in packed)
+
+    @staticmethod
+    def _ahash(gray: np.ndarray) -> str:
+        resized = cv2.resize(gray, (8, 8), interpolation=cv2.INTER_AREA).astype(np.float32)
+        avg = float(np.mean(resized))
+        bits = resized > avg
+        return ImageDB._bits_to_hex(bits)
+
+    @staticmethod
+    def _dhash(gray: np.ndarray) -> str:
+        resized = cv2.resize(gray, (9, 8), interpolation=cv2.INTER_AREA).astype(np.float32)
+        bits = resized[:, 1:] > resized[:, :-1]
+        return ImageDB._bits_to_hex(bits)
+
+    @staticmethod
+    def _phash(gray: np.ndarray) -> str:
+        resized = cv2.resize(gray, (32, 32), interpolation=cv2.INTER_AREA).astype(np.float32)
+        dct = cv2.dct(resized)
+        low = dct[:8, :8]
+        median = float(np.median(low.reshape(-1)[1:]))  # DC 성분 제외
+        bits = low > median
+        return ImageDB._bits_to_hex(bits)
 
     @staticmethod
     def _compute_hog(gray: np.ndarray) -> np.ndarray:
         resized = cv2.resize(gray, (64, 64), interpolation=cv2.INTER_AREA)
-        features = hog(
-            resized,
-            pixels_per_cell=(8, 8),
-            cells_per_block=(2, 2),
-            feature_vector=True,
+        descriptor = cv2.HOGDescriptor(
+            _winSize=(64, 64),
+            _blockSize=(16, 16),
+            _blockStride=(8, 8),
+            _cellSize=(8, 8),
+            _nbins=9,
         )
-        return features.astype(np.float32)
+        features = descriptor.compute(resized)
+        if features is None:
+            # 64x64, 8x8 cell, 16x16 block, 8 stride, 9 bins -> 1764 dims
+            return np.zeros((1764,), dtype=np.float32)
+        return features.reshape(-1).astype(np.float32)
 
     @staticmethod
     def _compute_orb(gray: np.ndarray) -> Optional[np.ndarray]:
