@@ -116,6 +116,7 @@ class ScreenCapture:
         self._last_jacket_img: Optional[np.ndarray] = None
         self._last_jacket_thumb: Optional[np.ndarray] = None
         self._last_jacket_match_ts = 0.0
+        self._last_jacket_matched = False
 
         # Windows OCR 엔진
         self.ocr_engine = None
@@ -226,6 +227,7 @@ class ScreenCapture:
                 self.on_screen_changed(is_song_select)
 
         if not is_song_select:
+            self._last_jacket_matched = False
             return
 
         # 2. 재킷 이미지 캡처 (항상 최신 유지 - 등록 트리거 대응)
@@ -239,7 +241,12 @@ class ScreenCapture:
 
         # 3. 재킷 매칭 시도 (주기 제한)
         now = time.time()
-        jacket_matched = False
+        jacket_matched = (
+            self._last_jacket_matched
+            and self.image_db is not None
+            and self.image_db.is_ready
+            and self.image_db.song_count > 0
+        )
         if (
             self.image_db is not None
             and self.image_db.is_ready
@@ -274,13 +281,19 @@ class ScreenCapture:
                             if self.on_song_changed:
                                 self.on_song_changed("", "", song_id=int(song_id))
                             jacket_matched = True
+                            self._last_jacket_matched = True
                         else:
                             self.log(
                                 f"재킷 매칭 결과가 숫자 song_id가 아님: '{song_id}' -> OCR fallback"
                             )
+                            jacket_matched = False
+                            self._last_jacket_matched = False
                     else:
                         jacket_matched = True
+                        self._last_jacket_matched = True
                 else:
+                    jacket_matched = False
+                    self._last_jacket_matched = False
                     if JACKET_SIMILARITY_LOG:
                         self.log("재킷 매칭 실패 → OCR fallback")
 
