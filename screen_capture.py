@@ -334,6 +334,15 @@ class ScreenCapture:
             f"composer='{composer}' -> 선택='{title}'"
         )
 
+        if not title:
+            song_key = "ocr::empty"
+            if song_key != self._last_song_key:
+                self._last_song_key = song_key
+                if self.on_song_changed:
+                    # 빈 title 전달로 UI 초기 상태 복귀를 유도
+                    self.on_song_changed("", "")
+            return
+
         song_key = f"ocr::{title}::{composer}".strip("::")
         if title and song_key != self._last_song_key:
             self._last_song_key = song_key

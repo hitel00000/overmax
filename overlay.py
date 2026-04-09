@@ -481,8 +481,17 @@ class OverlayController:
         self._last_window_rect: Optional[tuple[int, int, int, int]] = None
         self._position_path = runtime_patch.get_data_dir() / OVERLAY_POSITION_FILE
 
+    def _emit_initial_state(self):
+        all_patterns = [{"mode": mode, "patterns": []} for mode in BUTTON_MODES]
+        self.signals.song_changed.emit("곡을 선택하세요", all_patterns)
+
     def notify_song(self, title: str = "", composer: str = "", song_id: Optional[int] = None):
         """OCR 스레드에서 호출 - 곡명/작곡가로 패턴 조회 후 시그널 emit"""
+        if not title and not song_id:
+            self.log("곡명 인식 실패: UI 초기 상태로 복귀")
+            self._emit_initial_state()
+            return
+
         song = None
         if song_id:
             self.log(f"곡 검색: ID={song_id} (title='{title}', composer='{composer}')")
@@ -496,6 +505,7 @@ class OverlayController:
 
         if not song:
             self.log(f"'{title}' (composer='{composer}', id={song_id}) DB에서 찾을 수 없음")
+            self._emit_initial_state()
             return
 
         all_patterns = []
