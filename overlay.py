@@ -31,34 +31,34 @@ except ImportError:
 
 from varchive import VArchiveDB, BUTTON_MODES, DIFFICULTIES, DIFF_COLORS
 
-OVERLAY_SETTINGS = SETTINGS.get("overlay", {})
-TOGGLE_HOTKEY = str(OVERLAY_SETTINGS.get("toggle_hotkey", "F9"))
-TRAY_TOOLTIP = str(OVERLAY_SETTINGS.get("tray_tooltip", "Overmax - DJMAX Respect V 난이도 오버레이"))
-HINT_LABEL = str(OVERLAY_SETTINGS.get("hint_label", f"{TOGGLE_HOTKEY}: 표시/숨김  |  드래그로 위치 이동"))
-OVERLAY_POSITION_FILE = str(OVERLAY_SETTINGS.get("position_file", "overlay_position.json"))
-SCREEN_CAPTURE_SETTINGS = SETTINGS.get("screen_capture", {})
-JACKET_SETTINGS = SETTINGS.get("jacket_matcher", {})
+OVERLAY_SETTINGS = SETTINGS["overlay"]
+TOGGLE_HOTKEY = str(OVERLAY_SETTINGS["toggle_hotkey"])
+TRAY_TOOLTIP = str(OVERLAY_SETTINGS["tray_tooltip"])
+HINT_LABEL = str(OVERLAY_SETTINGS["hint_label"])
+OVERLAY_POSITION_FILE = str(OVERLAY_SETTINGS["position_file"])
+SCREEN_CAPTURE_SETTINGS = SETTINGS["screen_capture"]
+JACKET_SETTINGS = SETTINGS["jacket_matcher"]
 
-LOGO_X_START = float(SCREEN_CAPTURE_SETTINGS.get("logo_x_start", 0.028))
-LOGO_X_END = float(SCREEN_CAPTURE_SETTINGS.get("logo_x_end", 0.210))
-LOGO_Y_START = float(SCREEN_CAPTURE_SETTINGS.get("logo_y_start", 0.015))
-LOGO_Y_END = float(SCREEN_CAPTURE_SETTINGS.get("logo_y_end", 0.090))
-LEFT_TITLE_X_START = float(SCREEN_CAPTURE_SETTINGS.get("left_title_x_start", 0.028))
-LEFT_TITLE_X_END = float(SCREEN_CAPTURE_SETTINGS.get("left_title_x_end", 0.265))
-LEFT_TITLE_Y_START = float(SCREEN_CAPTURE_SETTINGS.get("left_title_y_start", 0.180))
-LEFT_TITLE_Y_END = float(SCREEN_CAPTURE_SETTINGS.get("left_title_y_end", 0.305))
-RIGHT_TITLE_X_START = float(SCREEN_CAPTURE_SETTINGS.get("right_title_x_start", 0.325))
-RIGHT_TITLE_X_END = float(SCREEN_CAPTURE_SETTINGS.get("right_title_x_end", 0.660))
-RIGHT_TITLE_Y_START = float(SCREEN_CAPTURE_SETTINGS.get("right_title_y_start", 0.535))
-RIGHT_TITLE_Y_END = float(SCREEN_CAPTURE_SETTINGS.get("right_title_y_end", 0.602))
-LEFT_COMPOSER_X_START = float(SCREEN_CAPTURE_SETTINGS.get("left_composer_x_start", 0.028))
-LEFT_COMPOSER_X_END = float(SCREEN_CAPTURE_SETTINGS.get("left_composer_x_end", 0.300))
-LEFT_COMPOSER_Y_START = float(SCREEN_CAPTURE_SETTINGS.get("left_composer_y_start", 0.245))
-LEFT_COMPOSER_Y_END = float(SCREEN_CAPTURE_SETTINGS.get("left_composer_y_end", 0.285))
-JACKET_X_START = float(JACKET_SETTINGS.get("jacket_x_start", 0.370))
-JACKET_X_END   = float(JACKET_SETTINGS.get("jacket_x_end",   0.401))
-JACKET_Y_START = float(JACKET_SETTINGS.get("jacket_y_start", 0.494))
-JACKET_Y_END   = float(JACKET_SETTINGS.get("jacket_y_end",   0.549))
+LOGO_X_START = float(SCREEN_CAPTURE_SETTINGS["logo_x_start"])
+LOGO_X_END = float(SCREEN_CAPTURE_SETTINGS["logo_x_end"])
+LOGO_Y_START = float(SCREEN_CAPTURE_SETTINGS["logo_y_start"])
+LOGO_Y_END = float(SCREEN_CAPTURE_SETTINGS["logo_y_end"])
+LEFT_TITLE_X_START = float(SCREEN_CAPTURE_SETTINGS["left_title_x_start"])
+LEFT_TITLE_X_END = float(SCREEN_CAPTURE_SETTINGS["left_title_x_end"])
+LEFT_TITLE_Y_START = float(SCREEN_CAPTURE_SETTINGS["left_title_y_start"])
+LEFT_TITLE_Y_END = float(SCREEN_CAPTURE_SETTINGS["left_title_y_end"])
+RIGHT_TITLE_X_START = float(SCREEN_CAPTURE_SETTINGS["right_title_x_start"])
+RIGHT_TITLE_X_END = float(SCREEN_CAPTURE_SETTINGS["right_title_x_end"])
+RIGHT_TITLE_Y_START = float(SCREEN_CAPTURE_SETTINGS["right_title_y_start"])
+RIGHT_TITLE_Y_END = float(SCREEN_CAPTURE_SETTINGS["right_title_y_end"])
+LEFT_COMPOSER_X_START = float(SCREEN_CAPTURE_SETTINGS["left_composer_x_start"])
+LEFT_COMPOSER_X_END = float(SCREEN_CAPTURE_SETTINGS["left_composer_x_end"])
+LEFT_COMPOSER_Y_START = float(SCREEN_CAPTURE_SETTINGS["left_composer_y_start"])
+LEFT_COMPOSER_Y_END = float(SCREEN_CAPTURE_SETTINGS["left_composer_y_end"])
+JACKET_X_START = float(JACKET_SETTINGS["jacket_x_start"])
+JACKET_X_END   = float(JACKET_SETTINGS["jacket_x_end"])
+JACKET_Y_START = float(JACKET_SETTINGS["jacket_y_start"])
+JACKET_Y_END   = float(JACKET_SETTINGS["jacket_y_end"])
 
 
 # ------------------------------------------------------------------
@@ -373,7 +373,7 @@ class OverlayWindow(QWidget):
         shortcut.activated.connect(self.toggle_visibility)
  
         # 재킷 등록 단축키 (F10)
-        jacket_hotkey = SETTINGS.get("jacket_matcher", {}).get("register_hotkey", "F10")
+        jacket_hotkey = SETTINGS["jacket_matcher"]["register_hotkey"]
         jacket_shortcut = QShortcut(QKeySequence(jacket_hotkey), self)
         jacket_shortcut.activated.connect(self._on_jacket_register_hotkey)
  

@@ -34,7 +34,7 @@ class DebugSignals(QObject):
 # ------------------------------------------------------------------
 
 class DebugWindow(QWidget):
-    MAX_LINES = int(SETTINGS.get("debug_window", {}).get("max_lines", 500))   # 이 이상이면 오래된 줄 삭제
+    MAX_LINES = int(SETTINGS["debug_window"]["max_lines"])   # 이 이상이면 오래된 줄 삭제
 
     # 모듈별 색상
     TAG_COLORS = {
@@ -58,7 +58,7 @@ class DebugWindow(QWidget):
         self.signals.log_received.connect(self._append_log)
 
     def _setup_window(self):
-        self.setWindowTitle(str(SETTINGS.get("debug_window", {}).get("title", "Overmax Debug Log")))
+        self.setWindowTitle(str(SETTINGS["debug_window"]["title"]))
         self.setWindowFlags(
             Qt.WindowType.Window
             | Qt.WindowType.WindowStaysOnTopHint

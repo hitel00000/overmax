@@ -18,9 +18,9 @@ except ImportError:
     print("[WindowTracker] pywin32 없음 - 더미 모드로 실행")
     win32gui = None
 
-WINDOW_TRACKER_SETTINGS = SETTINGS.get("window_tracker", {})
-WINDOW_TITLE = str(WINDOW_TRACKER_SETTINGS.get("window_title", "DJMAX RESPECT V"))
-POLL_INTERVAL = float(WINDOW_TRACKER_SETTINGS.get("poll_interval_sec", 0.5))  # 창 위치 갱신 주기 (초)
+WINDOW_TRACKER_SETTINGS = SETTINGS["window_tracker"]
+WINDOW_TITLE = str(WINDOW_TRACKER_SETTINGS["window_title"])
+POLL_INTERVAL = float(WINDOW_TRACKER_SETTINGS["poll_interval_sec"])  # 창 위치 갱신 주기 (초)
 
 
 @dataclass

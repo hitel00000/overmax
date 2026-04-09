@@ -26,9 +26,9 @@ from image_db import ImageDB
 from settings import SETTINGS
 
 LOCAL_SONGS_JSON = runtime_patch.get_data_dir() / "cache" / "songs.json"
-WINDOW_TITLE = str(SETTINGS.get("window_tracker", {}).get("window_title", "DJMAX RESPECT V"))
-TOGGLE_HOTKEY = str(SETTINGS.get("overlay", {}).get("toggle_hotkey", "F9"))
-JACKET_REGISTER_HOTKEY = str(SETTINGS.get("jacket_matcher", {}).get("register_hotkey", "F10"))
+WINDOW_TITLE = str(SETTINGS["window_tracker"]["window_title"])
+TOGGLE_HOTKEY = str(SETTINGS["overlay"]["toggle_hotkey"])
+JACKET_REGISTER_HOTKEY = str(SETTINGS["jacket_matcher"]["register_hotkey"])
 
 
 def main():
@@ -48,10 +48,10 @@ def main():
         sys.exit(1)
 
     # 2. ImageDB 초기화 (실패해도 계속 실행 - OCR fallback 동작)
-    image_cfg = SETTINGS.get("jacket_matcher", {})
+    image_cfg = SETTINGS["jacket_matcher"]
     image_db = ImageDB(
-        db_path=str(image_cfg.get("db_path", "image_index.db")),
-        similarity_threshold=float(image_cfg.get("similarity_threshold", 0.5)),
+        db_path=str(image_cfg["db_path"]),
+        similarity_threshold=float(image_cfg["similarity_threshold"]),
     )
     image_ok = image_db.initialize()
     if image_ok:

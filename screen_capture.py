@@ -33,57 +33,57 @@ from image_db import ImageDB
 # ------------------------------------------------------------------
 # 설정 상수 (비율 기반)
 # ------------------------------------------------------------------
-SCREEN_CAPTURE_SETTINGS = SETTINGS.get("screen_capture", {})
-JACKET_SETTINGS = SETTINGS.get("jacket_matcher", {})
+SCREEN_CAPTURE_SETTINGS = SETTINGS["screen_capture"]
+JACKET_SETTINGS = SETTINGS["jacket_matcher"]
 
-OCR_INTERVAL = float(SCREEN_CAPTURE_SETTINGS.get("ocr_interval_sec", 0.35))
-IDLE_SLEEP_INTERVAL = float(SCREEN_CAPTURE_SETTINGS.get("idle_sleep_sec", 0.5))
+OCR_INTERVAL = float(SCREEN_CAPTURE_SETTINGS["ocr_interval_sec"])
+IDLE_SLEEP_INTERVAL = float(SCREEN_CAPTURE_SETTINGS["idle_sleep_sec"])
 
 # 선곡화면 로고(FREESTYLE) 감지 영역
-LOGO_X_START = float(SCREEN_CAPTURE_SETTINGS.get("logo_x_start", 0.028))
-LOGO_X_END   = float(SCREEN_CAPTURE_SETTINGS.get("logo_x_end", 0.210))
-LOGO_Y_START = float(SCREEN_CAPTURE_SETTINGS.get("logo_y_start", 0.015))
-LOGO_Y_END   = float(SCREEN_CAPTURE_SETTINGS.get("logo_y_end", 0.090))
+LOGO_X_START = float(SCREEN_CAPTURE_SETTINGS["logo_x_start"])
+LOGO_X_END   = float(SCREEN_CAPTURE_SETTINGS["logo_x_end"])
+LOGO_Y_START = float(SCREEN_CAPTURE_SETTINGS["logo_y_start"])
+LOGO_Y_END   = float(SCREEN_CAPTURE_SETTINGS["logo_y_end"])
 
-LOGO_OCR_KEYWORD = str(SCREEN_CAPTURE_SETTINGS.get("logo_ocr_keyword", "FREESTYLE")).upper()
-LOGO_OCR_COOLDOWN_SEC = float(SCREEN_CAPTURE_SETTINGS.get("logo_ocr_cooldown_sec", 1.0))
-FREESTYLE_HISTORY_SIZE = int(SCREEN_CAPTURE_SETTINGS.get("freestyle_history_size", 7))
-FREESTYLE_MAJORITY_RATIO = float(SCREEN_CAPTURE_SETTINGS.get("freestyle_majority_ratio", 0.60))
-FREESTYLE_MIN_SAMPLES = int(SCREEN_CAPTURE_SETTINGS.get("freestyle_min_samples", 3))
-FREESTYLE_ON_RATIO = float(SCREEN_CAPTURE_SETTINGS.get("freestyle_on_ratio", FREESTYLE_MAJORITY_RATIO))
-FREESTYLE_ON_MIN_SAMPLES = int(SCREEN_CAPTURE_SETTINGS.get("freestyle_on_min_samples", FREESTYLE_MIN_SAMPLES))
-FREESTYLE_OFF_RATIO = float(SCREEN_CAPTURE_SETTINGS.get("freestyle_off_ratio", 0.35))
-FREESTYLE_OFF_MIN_SAMPLES = int(SCREEN_CAPTURE_SETTINGS.get("freestyle_off_min_samples", FREESTYLE_HISTORY_SIZE))
+LOGO_OCR_KEYWORD = str(SCREEN_CAPTURE_SETTINGS["logo_ocr_keyword"]).upper()
+LOGO_OCR_COOLDOWN_SEC = float(SCREEN_CAPTURE_SETTINGS["logo_ocr_cooldown_sec"])
+FREESTYLE_HISTORY_SIZE = int(SCREEN_CAPTURE_SETTINGS["freestyle_history_size"])
+FREESTYLE_MAJORITY_RATIO = float(SCREEN_CAPTURE_SETTINGS["freestyle_majority_ratio"])
+FREESTYLE_MIN_SAMPLES = int(SCREEN_CAPTURE_SETTINGS["freestyle_min_samples"])
+FREESTYLE_ON_RATIO = float(SCREEN_CAPTURE_SETTINGS["freestyle_on_ratio"])
+FREESTYLE_ON_MIN_SAMPLES = int(SCREEN_CAPTURE_SETTINGS["freestyle_on_min_samples"])
+FREESTYLE_OFF_RATIO = float(SCREEN_CAPTURE_SETTINGS["freestyle_off_ratio"])
+FREESTYLE_OFF_MIN_SAMPLES = int(SCREEN_CAPTURE_SETTINGS["freestyle_off_min_samples"])
 
 # OCR ROI
-LEFT_TITLE_X_START = float(SCREEN_CAPTURE_SETTINGS.get("left_title_x_start", 0.028))
-LEFT_TITLE_X_END   = float(SCREEN_CAPTURE_SETTINGS.get("left_title_x_end", 0.265))
-LEFT_TITLE_Y_START = float(SCREEN_CAPTURE_SETTINGS.get("left_title_y_start", 0.180))
-LEFT_TITLE_Y_END   = float(SCREEN_CAPTURE_SETTINGS.get("left_title_y_end", 0.305))
+LEFT_TITLE_X_START = float(SCREEN_CAPTURE_SETTINGS["left_title_x_start"])
+LEFT_TITLE_X_END   = float(SCREEN_CAPTURE_SETTINGS["left_title_x_end"])
+LEFT_TITLE_Y_START = float(SCREEN_CAPTURE_SETTINGS["left_title_y_start"])
+LEFT_TITLE_Y_END   = float(SCREEN_CAPTURE_SETTINGS["left_title_y_end"])
 
-RIGHT_TITLE_X_START = float(SCREEN_CAPTURE_SETTINGS.get("right_title_x_start", 0.325))
-RIGHT_TITLE_X_END   = float(SCREEN_CAPTURE_SETTINGS.get("right_title_x_end", 0.660))
-RIGHT_TITLE_Y_START = float(SCREEN_CAPTURE_SETTINGS.get("right_title_y_start", 0.535))
-RIGHT_TITLE_Y_END   = float(SCREEN_CAPTURE_SETTINGS.get("right_title_y_end", 0.602))
-RIGHT_TITLE_PAD_PX = int(SCREEN_CAPTURE_SETTINGS.get("right_title_pad_px", 6))
+RIGHT_TITLE_X_START = float(SCREEN_CAPTURE_SETTINGS["right_title_x_start"])
+RIGHT_TITLE_X_END   = float(SCREEN_CAPTURE_SETTINGS["right_title_x_end"])
+RIGHT_TITLE_Y_START = float(SCREEN_CAPTURE_SETTINGS["right_title_y_start"])
+RIGHT_TITLE_Y_END   = float(SCREEN_CAPTURE_SETTINGS["right_title_y_end"])
+RIGHT_TITLE_PAD_PX = int(SCREEN_CAPTURE_SETTINGS["right_title_pad_px"])
 
-LEFT_COMPOSER_X_START = float(SCREEN_CAPTURE_SETTINGS.get("left_composer_x_start", 0.028))
-LEFT_COMPOSER_X_END   = float(SCREEN_CAPTURE_SETTINGS.get("left_composer_x_end", 0.300))
-LEFT_COMPOSER_Y_START = float(SCREEN_CAPTURE_SETTINGS.get("left_composer_y_start", 0.245))
-LEFT_COMPOSER_Y_END   = float(SCREEN_CAPTURE_SETTINGS.get("left_composer_y_end", 0.285))
+LEFT_COMPOSER_X_START = float(SCREEN_CAPTURE_SETTINGS["left_composer_x_start"])
+LEFT_COMPOSER_X_END   = float(SCREEN_CAPTURE_SETTINGS["left_composer_x_end"])
+LEFT_COMPOSER_Y_START = float(SCREEN_CAPTURE_SETTINGS["left_composer_y_start"])
+LEFT_COMPOSER_Y_END   = float(SCREEN_CAPTURE_SETTINGS["left_composer_y_end"])
 
 # 재킷 ROI
-JACKET_X_START = float(JACKET_SETTINGS.get("jacket_x_start", 0.370))
-JACKET_X_END   = float(JACKET_SETTINGS.get("jacket_x_end",   0.401))
-JACKET_Y_START = float(JACKET_SETTINGS.get("jacket_y_start", 0.494))
-JACKET_Y_END   = float(JACKET_SETTINGS.get("jacket_y_end",   0.549))
+JACKET_X_START = float(JACKET_SETTINGS["jacket_x_start"])
+JACKET_X_END   = float(JACKET_SETTINGS["jacket_x_end"])
+JACKET_Y_START = float(JACKET_SETTINGS["jacket_y_start"])
+JACKET_Y_END   = float(JACKET_SETTINGS["jacket_y_end"])
 
 # 재킷 매칭 관련
-JACKET_MATCH_INTERVAL = float(JACKET_SETTINGS.get("match_interval_sec", 0.5))
-JACKET_REGISTER_HOTKEY = str(JACKET_SETTINGS.get("register_hotkey", "F10"))
-JACKET_SIMILARITY_LOG = bool(JACKET_SETTINGS.get("log_similarity", True))
-JACKET_CHANGE_THRESHOLD = float(JACKET_SETTINGS.get("jacket_change_threshold", 2.5))
-JACKET_FORCE_RECHECK_SEC = float(JACKET_SETTINGS.get("jacket_force_recheck_sec", 2.0))
+JACKET_MATCH_INTERVAL = float(JACKET_SETTINGS["match_interval_sec"])
+JACKET_REGISTER_HOTKEY = str(JACKET_SETTINGS["register_hotkey"])
+JACKET_SIMILARITY_LOG = bool(JACKET_SETTINGS["log_similarity"])
+JACKET_CHANGE_THRESHOLD = float(JACKET_SETTINGS["jacket_change_threshold"])
+JACKET_FORCE_RECHECK_SEC = float(JACKET_SETTINGS["jacket_force_recheck_sec"])
 
 
 class ScreenCapture:
