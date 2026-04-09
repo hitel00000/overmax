@@ -12,6 +12,7 @@ import time
 import threading
 import asyncio
 import re
+import difflib
 from collections import deque
 import numpy as np
 from typing import Optional, Callable
@@ -439,10 +440,32 @@ class ScreenCapture:
         now = time.time()
         if now - self._last_logo_ocr_ts >= LOGO_OCR_COOLDOWN_SEC:
             text = await self._ocr_windows(logo_img)
-            normalized = text.upper().replace("\n", " ").replace(" ", "")
-            self._last_logo_ocr_ok = LOGO_OCR_KEYWORD.replace(" ", "") in normalized
+            normalized = re.sub(r"[^A-Z0-9]", "", text.upper())
+            keyword = re.sub(r"[^A-Z0-9]", "", LOGO_OCR_KEYWORD.upper())
+            is_detected = False
+
+            if keyword and normalized:
+                if keyword in normalized:
+                    is_detected = True
+                else:
+                    min_partial_len = min(6, len(keyword))
+                    # 예: REESTYLE, EESTYL 같은 OCR 누락을 허용하기 위한 부분 일치
+                    for i in range(0, len(keyword) - min_partial_len + 1):
+                        part = keyword[i : i + min_partial_len]
+                        if part and part in normalized:
+                            is_detected = True
+                            break
+
+                    if not is_detected:
+                        # 연속 부분문자열이 안 잡혀도 전체 유사도가 충분하면 선곡 로고로 본다.
+                        ratio = difflib.SequenceMatcher(None, keyword, normalized).ratio()
+                        is_detected = ratio >= 0.72
+
+            self._last_logo_ocr_ok = is_detected
             self._last_logo_ocr_ts = now
-            self.log(f"로고 OCR: '{text}' -> {self._last_logo_ocr_ok}")
+            self.log(
+                f"로고 OCR: '{text}' (norm='{normalized}') -> {self._last_logo_ocr_ok}"
+            )
         return self._last_logo_ocr_ok
 
     # ------------------------------------------------------------------
