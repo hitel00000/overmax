@@ -1,42 +1,36 @@
 # Overmax
 
-DJMAX Respect V 선곡화면에 V-Archive 비공식 난이도를 실시간으로 오버레이하는 도구입니다.
+DJMAX RESPECT V 선곡 화면에서 V-Archive 기반 난이도 정보를 오버레이로 보여주는 도구입니다.
 
-게임 메모리를 읽거나 인젝션하지 않고, **창 추적 + 화면 캡처 + OCR** 방식으로만 동작합니다.
+메모리 읽기/인젝션 없이 **창 추적 + 화면 캡처 + OCR/이미지 매칭** 방식으로 동작합니다.
 
 ---
 
-## 주요 기능
+## 현재 상태 (요약)
 
-- 선곡화면 자동 감지 (`FREESTYLE` OCR 기반)
-- 화면 상태 안정화 로직
-  - 최근 프레임 다수결
-  - 빠르게 ON / 느리게 OFF 히스테리시스
-- 곡명 OCR
-  - 좌측 패널 + 우측 리스트를 함께 읽고 후보 선택
-- 작곡가 OCR
-  - 동명이곡일 때 작곡가로 분기
-- V-Archive 데이터 매칭
-  - 정확 매칭 + 퍼지 매칭
-- 디버그 창
-  - 실시간 로그
-  - ROI 표시 ON/OFF
-- 오버레이 위치 저장/복원
-  - 사용자가 옮긴 위치를 `overlay_position.json`에 저장
+- 선곡 화면 감지: `FREESTYLE` 로고 OCR + 히스토리/히스테리시스
+- 곡 감지 우선순위
+  - 1) 재킷 이미지 매칭 (`image_db.py`)
+  - 2) OCR fallback (곡명/작곡가)
+- V-Archive 매칭: exact + fuzzy (`fuzzy_threshold` 단일 설정)
+- 매칭 실패/OCR 실패 시 오버레이 UI를 초기 상태로 복귀
+- 단일 인스턴스 실행 보장 (중복 실행 방지)
+- 디버그 로그/ROI 오버레이
+- 재킷 수동 등록 기능 제거 (사용자 입력 경로 부재)
 
 ---
 
 ## 요구사항
 
-- Windows 10 / 11 (64bit)
-- DJMAX Respect V (Steam)
+- Windows 10/11 (64bit)
+- DJMAX RESPECT V (Steam)
 - Python 3.10+ (소스 실행 시)
 
 ---
 
 ## 실행
 
-### 소스에서 실행
+### 소스 실행
 
 ```bash
 git clone https://github.com/yourname/overmax.git
@@ -45,7 +39,8 @@ pip install -r requirements.txt
 python main.py
 ```
 
-`songs.json`은 첫 실행 시 V-Archive API에서 다운로드되어 `cache/`에 저장됩니다.
+- `songs.json`은 필요 시 V-Archive API에서 다운로드되어 `cache/`에 저장됩니다.
+- 이미 앱이 실행 중이면 새 인스턴스는 종료됩니다.
 
 ### 빌드
 
@@ -55,52 +50,73 @@ build.bat
 
 ---
 
-## 사용법
+## Image DB 관리 CLI
 
-- 게임 창 감지 후 선곡화면이면 오버레이가 표시됩니다.
-- 기본 단축키: `F9` (오버레이 표시/숨김)
-- 오버레이를 드래그하면 위치가 저장되어 다음 실행에 복원됩니다.
-- 디버그 창에서 `ROI 표시`를 켜면 OCR/검출 영역을 게임 화면 위에 선으로 확인할 수 있습니다.
+`image_db.py`를 모듈로 실행하면 대화형 관리 도구가 실행됩니다.
+
+```bash
+python -m image_db
+```
+
+기능:
+- 테이블 조회
+- `song_id` 기준 단일 항목 조회
+- 단일 이미지 추가 (`song_id` + 파일 경로)
+- 폴더 일괄 추가 (파일명 stem을 `song_id`로 사용, 숫자만 허용)
+- `song_id` 기준 단일 항목 삭제
+
+참고:
+- `image_id(song_id)`는 unique 인덱스로 관리됩니다.
+- 같은 `song_id` 재등록 시 upsert(갱신)됩니다.
 
 ---
 
-## 설정
+## 주요 설정
 
 설정 파일:
-
 - `settings.json` (실사용)
 - `settings.py` (기본값)
 
-중요 섹션:
-
+중요 키:
 - `screen_capture`
-  - `logo_*`: 선곡화면 로고 OCR 영역
-  - `freestyle_*`: 다수결/히스테리시스 파라미터
-  - `left_title_*`, `right_title_*`: 곡명 OCR 영역
-  - `left_composer_*`: 작곡가 OCR 영역
-- `overlay`
-  - `toggle_hotkey`
-  - `position_file`
+  - `logo_*`, `freestyle_*`: 선곡 화면 감지
+  - `left_title_*`, `right_title_*`, `left_composer_*`: OCR ROI
+- `jacket_matcher`
+  - `similarity_threshold`, `match_interval_sec`, `jacket_*`
+- `varchive`
+  - `fuzzy_threshold`
 
 ---
 
 ## 프로젝트 구조
 
-```
+```text
 overmax/
-├── main.py             진입점
-├── window_tracker.py   게임 창 위치/크기 추적
-├── screen_capture.py   선곡 감지 + OCR
-├── varchive.py         V-Archive 로드/캐시/검색
-├── overlay.py          오버레이 UI + ROI 디버그 오버레이
-├── debug_window.py     디버그 로그 창
-├── settings.py         기본 설정
-├── settings.json       사용자 설정
-├── runtime_patch.py    패키징 런타임 경로 보정
+├── main.py
+├── window_tracker.py
+├── screen_capture.py
+├── image_db.py
+├── image_db_cli.py
+├── varchive.py
+├── overlay.py
+├── debug_window.py
+├── settings.py
+├── settings.json
+├── runtime_patch.py
 ├── overmax.spec
 ├── build.bat
 └── CONTEXT.md
 ```
+
+---
+
+## 로드맵
+
+다음 우선 기능:
+- 현재 선택된 버튼 모드/난이도 감지
+- 곡명 OCR 제거(재킷/직접 감지 기반으로 전환)
+- 선택 패턴과 유사 난이도 추천
+- 기능 안정화 후 경량화(의존성/패키지 크기/시작 속도)
 
 ---
 

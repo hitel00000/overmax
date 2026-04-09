@@ -4,8 +4,6 @@ screen_capture.py - 화면 캡처 및 OCR 모듈 (재킷 매칭 우선 버전)
 곡 감지 우선순위:
   1. 재킷 이미지 매칭 (image_db.py)
   2. OCR 기반 곡명/작곡가 추출 (fallback)
-
-단축키 F10 (기본): 현재 선택된 재킷을 DB에 수동 등록
 """
 
 import time
@@ -81,7 +79,6 @@ JACKET_Y_END   = float(JACKET_SETTINGS["jacket_y_end"])
 
 # 재킷 매칭 관련
 JACKET_MATCH_INTERVAL = float(JACKET_SETTINGS["match_interval_sec"])
-JACKET_REGISTER_HOTKEY = str(JACKET_SETTINGS["register_hotkey"])
 JACKET_SIMILARITY_LOG = bool(JACKET_SETTINGS["log_similarity"])
 JACKET_CHANGE_THRESHOLD = float(JACKET_SETTINGS["jacket_change_threshold"])
 JACKET_FORCE_RECHECK_SEC = float(JACKET_SETTINGS["jacket_force_recheck_sec"])
@@ -101,8 +98,6 @@ class ScreenCapture:
         self.on_song_changed:   Optional[Callable[[str, str], None]]  = None
         self.on_screen_changed: Optional[Callable[[bool], None]] = None
         self.on_debug_log:      Optional[Callable[[str], None]]  = None
-        # 재킷 등록 요청 시 곡명 조회용 (overlay controller에서 연결)
-        self.on_jacket_register_request: Optional[Callable[[np.ndarray], None]] = None
 
         # asyncio
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -114,7 +109,6 @@ class ScreenCapture:
 
         # 재킷 매칭 상태
         self._last_jacket_ts = 0.0
-        self._last_jacket_img: Optional[np.ndarray] = None
         self._last_jacket_thumb: Optional[np.ndarray] = None
         self._last_jacket_match_ts = 0.0
         self._last_jacket_matched = False
@@ -171,32 +165,6 @@ class ScreenCapture:
             self._loop.close()
 
     # ------------------------------------------------------------------
-    # 재킷 수동 등록 (외부에서 호출 - 단축키 트리거)
-    # ------------------------------------------------------------------
-
-    def trigger_jacket_register(self, song_id: str):
-        """
-        현재 캡처된 재킷 이미지를 song_id로 등록.
-        단축키 핸들러에서 song_id를 얻어와 호출.
-        """
-        if self.image_db is None:
-            self.log("재킷 DB 없음 - 등록 불가")
-            return
-        if self._last_jacket_img is None:
-            self.log("저장된 재킷 이미지 없음 - 선곡화면에서 먼저 실행하세요")
-            return
-        if not song_id:
-            self.log("곡명 없음 - 등록 취소")
-            return
-
-        img = self._last_jacket_img.copy()
-        ok = self.image_db.register(song_id, img)
-        if ok:
-            self.log(f"재킷 등록 완료: '{song_id}'")
-        else:
-            self.log(f"재킷 등록 실패: '{song_id}'")
-
-    # ------------------------------------------------------------------
     # 메인 루프
     # ------------------------------------------------------------------
 
@@ -231,14 +199,13 @@ class ScreenCapture:
             self._last_jacket_matched = False
             return
 
-        # 2. 재킷 이미지 캡처 (항상 최신 유지 - 등록 트리거 대응)
+        # 2. 재킷 이미지 캡처
         jacket_region = self._region_from_ratio(
             rect,
             JACKET_X_START, JACKET_X_END,
             JACKET_Y_START, JACKET_Y_END,
         )
         jacket_img = np.array(sct.grab(jacket_region))
-        self._last_jacket_img = jacket_img
 
         # 3. 재킷 매칭 시도 (주기 제한)
         now = time.time()

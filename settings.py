@@ -64,7 +64,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "match_interval_sec": 0.8,
         "jacket_change_threshold": 2.5,
         "jacket_force_recheck_sec": 2.0,
-        "register_hotkey": "F10",
         "log_similarity": True,
         "jacket_x_start": 0.370,
         "jacket_x_end": 0.401,

@@ -5,7 +5,6 @@ Overmax - DJMAX Respect V 비공식 난이도 오버레이
 변경 사항:
   - ImageDB 초기화 추가
   - ScreenCapture에 image_db 주입
-  - F10 단축키: 현재 재킷을 현재 OCR 곡명으로 등록
 """
 
 import sys
@@ -30,7 +29,6 @@ from settings import SETTINGS
 LOCAL_SONGS_JSON = runtime_patch.get_data_dir() / "cache" / "songs.json"
 WINDOW_TITLE = str(SETTINGS["window_tracker"]["window_title"])
 TOGGLE_HOTKEY = str(SETTINGS["overlay"]["toggle_hotkey"])
-JACKET_REGISTER_HOTKEY = str(SETTINGS["jacket_matcher"]["register_hotkey"])
 _SINGLE_INSTANCE_MUTEX_NAME = "OvermaxSingleInstanceMutex"
 _ERROR_ALREADY_EXISTS = 183
 
@@ -108,9 +106,6 @@ def main():
         # 5. 창 추적기
         tracker = WindowTracker()
 
-        # 현재 인식된 곡명 추적 (재킷 등록 시 song_id로 사용)
-        _current_song_id: dict[str, str] = {"value": ""}
-
         def on_window_found(rect):
             debug_ctrl.log(
                 f"[Main] 게임 창 발견: {rect.width}x{rect.height} @ ({rect.left},{rect.top})"
@@ -139,7 +134,6 @@ def main():
                     title = song.get("name", title)
                     composer = song.get("composer", composer)
 
-            _current_song_id["value"] = title
             debug_ctrl.log(f"[Main] 곡명 감지: '{title}' / composer: '{composer}'")
             controller.notify_song(title=title, composer=composer, song_id=song_id)
 
@@ -152,27 +146,11 @@ def main():
         capture.on_debug_log      = debug_ctrl.log
         controller._debug_log_cb  = debug_ctrl.log
 
-        # 7. 재킷 수동 등록 단축키 (F10)
-        #    Qt 이벤트 루프 밖이므로 keyboard 라이브러리 또는
-        #    overlay.py의 QShortcut으로 처리.
-        #    여기서는 콜백 형태로 overlay에 등록
-        def on_jacket_register_hotkey():
-            song_id = _current_song_id["value"]
-            if not song_id:
-                debug_ctrl.log("[Main] 재킷 등록 실패: 현재 곡명 없음")
-                return
-            debug_ctrl.log(f"[Main] 재킷 등록 시작: '{song_id}'")
-            capture.trigger_jacket_register(song_id)
-
-        # controller에 재킷 등록 콜백 주입 (overlay.py에서 QShortcut 처리)
-        controller._jacket_register_cb = on_jacket_register_hotkey
-
         capture_thread = threading.Thread(target=capture.start, daemon=True)
         capture_thread.start()
 
         print(f"\n[Main] 실행 중...")
         print(f"  {TOGGLE_HOTKEY}: 오버레이 표시/숨김")
-        print(f"  {JACKET_REGISTER_HOTKEY}: 현재 재킷 DB 등록")
         print(f"  Ctrl+C: 종료")
         print(f"[Main] 게임 창 대기 중: '{WINDOW_TITLE}'")
 

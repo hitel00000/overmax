@@ -302,7 +302,6 @@ class OverlayWindow(QWidget):
         self._drag_pos = QPoint()
         self._manual_position = False
         self._user_move_cb = None
-        self._jacket_register_cb = None
 
         self._setup_window()
         self._setup_ui()
@@ -371,16 +370,6 @@ class OverlayWindow(QWidget):
         # 표시/숨김 단축키
         shortcut = QShortcut(QKeySequence(TOGGLE_HOTKEY), self)
         shortcut.activated.connect(self.toggle_visibility)
- 
-        # 재킷 등록 단축키 (F10)
-        jacket_hotkey = SETTINGS["jacket_matcher"]["register_hotkey"]
-        jacket_shortcut = QShortcut(QKeySequence(jacket_hotkey), self)
-        jacket_shortcut.activated.connect(self._on_jacket_register_hotkey)
- 
-    def _on_jacket_register_hotkey(self):
-        """재킷 등록 단축키 핸들러 - main.py에서 주입된 콜백 호출"""
-        if self._jacket_register_cb is not None:
-            self._jacket_register_cb()
 
     # ------------------------------------------------------------------
     # 슬롯
@@ -476,7 +465,6 @@ class OverlayController:
         self._roi_window: Optional[RoiOverlayWindow] = None
         self._tray_icon: Optional[QSystemTrayIcon] = None
         self._debug_log_cb = None   # set by main.py after DebugController init
-        self._jacket_register_cb = None
         self._debug_toggle_cb = None
         self._last_window_rect: Optional[tuple[int, int, int, int]] = None
         self._position_path = runtime_patch.get_data_dir() / OVERLAY_POSITION_FILE
@@ -615,10 +603,6 @@ class OverlayController:
             self._debug_toggle_cb = debug_ctrl.toggle_window
         else:
             self._debug_toggle_cb = None
-
-        # 재킷 등록 콜백 창에 주입
-        if self._jacket_register_cb is not None:
-            self._window._jacket_register_cb = self._jacket_register_cb
 
         # 트레이 아이콘 설정
         self._setup_tray_icon()

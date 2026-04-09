@@ -1,101 +1,104 @@
 # CONTEXT.md
 
-Overmax 현재 구현 기준의 설계 메모입니다.
+Overmax 현재 구현/운영 기준 메모입니다.
 
 ---
 
-## 목표
+## 제품 목표
 
-- DJMAX Respect V 선곡화면에서 선택 곡 난이도 정보를 실시간 오버레이
-- 메모리 접근/인젝션 없이 화면 캡처 + OCR만 사용
+- DJMAX RESPECT V 선곡 화면에서 현재 곡 난이도 정보를 실시간 오버레이
+- 메모리 접근/인젝션 없이 화면 기반 인식으로 동작
 
 ---
 
 ## 현재 아키텍처
 
 `main.py`
-- `WindowTracker` 스레드: 게임 창 탐지 및 위치/크기 변경 감지
-- `ScreenCapture` 스레드: 선곡화면 판정 + 곡명/작곡가 OCR
-- `OverlayController` (Qt 메인 스레드): 오버레이 UI, 트레이, ROI 디버그 오버레이
-- `DebugController`: 로그 창 및 ROI 토글 버튼
+- 단일 인스턴스 락 (Windows named mutex)
+- `WindowTracker`: 게임 창 탐지/위치 추적
+- `ScreenCapture`: 선곡 판정 + 재킷 매칭 + OCR fallback
+- `OverlayController` (Qt 메인 스레드): 오버레이 UI/트레이/ROI
+- `DebugController`: 로그 창
 
-스레드 간 UI 반영은 모두 Qt signal/slot 경유.
+`image_db.py`
+- 재킷 이미지 인덱스 DB (SQLite)
+- 특징: pHash/dHash/aHash(OpenCV/NumPy 구현), HOG(OpenCV), ORB
+- `image_id(song_id)` unique 인덱스 + upsert 등록
 
----
+`image_db_cli.py`
+- DB 조회/추가/삭제 대화형 관리 도구
 
-## 화면 판정 / OCR 로직
-
-### 선곡화면 판정
-
-- 로고 ROI OCR에서 `FREESTYLE` 키워드 인식
-- 최근 프레임 버퍼 기반 다수결
-- 히스테리시스 적용
-  - ON은 빠르게
-  - OFF는 느리게
-
-주요 설정 키 (`screen_capture`):
-- `logo_x_start/end`, `logo_y_start/end`
-- `logo_ocr_keyword`, `logo_ocr_cooldown_sec`
-- `freestyle_history_size`
-- `freestyle_on_ratio`, `freestyle_on_min_samples`
-- `freestyle_off_ratio`, `freestyle_off_min_samples`
-
-### 곡명/작곡가 OCR
-
-- 곡명: 좌측 패널 ROI + 우측 리스트 ROI를 동시에 OCR
-- 후보 점수화 후 최종 곡명 선택
-- 작곡가: 좌측 작곡가 ROI OCR
-- 결과는 `(title, composer)` 형태로 전달
-
-주요 설정 키:
-- `left_title_*`
-- `right_title_*`, `right_title_pad_px`
-- `left_composer_*`
+`varchive.py`
+- songs 데이터 로드/캐시/API 다운로드
+- 곡명 exact + fuzzy 검색
+- 동명이곡 composer 기반 분기
 
 ---
 
-## DB 매칭 (varchive.py)
+## 인식 파이프라인
 
-- 곡명 exact/fuzzy 검색
-- 동명이곡은 composer 유사도로 분기
-- 인덱스는 `title -> [song, ...]` 구조
+1. 선곡 화면 판정
+- 로고 OCR(`FREESTYLE`) + 히스토리 다수결/히스테리시스
+- 부분 인식(`REESTYLE`, `EESTYL` 등) 허용 로직 적용
 
----
+2. 곡 감지
+- 1순위: 재킷 이미지 매칭 (`ImageDB.search`)
+- 2순위: OCR fallback (title/composer)
 
-## 오버레이/디버그
-
-### 오버레이 위치
-
-- 사용자가 드래그로 이동하면 위치 저장
-- 다음 실행 시 복원
-- 저장 파일: `overlay.position_file` (기본 `overlay_position.json`)
-
-### ROI 표시
-
-- 디버그 창 버튼으로 ON/OFF
-- 게임 화면 위에 ROI 박스 라인 표시:
-  - `LOGO`
-  - `LEFT TITLE OCR`
-  - `RIGHT TITLE OCR`
-  - `COMPOSER OCR`
+3. V-Archive 매칭
+- `search_by_id` 또는 `search(title, composer)`
+- 실패 시 오버레이 UI 초기화(스테일 정보 제거)
 
 ---
 
-## 최근 변경 핵심
+## UI/상태 처리
 
-- `FREESTYLE` OCR 기반 선곡 판정으로 전환
-- 프레임 버퍼 다수결 + 히스테리시스 추가
-- 곡명 OCR 멀티 ROI(좌/우) + 작곡가 OCR 추가
-- 동명이곡 composer 분기 추가
-- ROI 디버그 오버레이 추가
-- 오버레이 위치 저장/복원 추가
-- 창 이동 시 ROI 오버레이 동기화 안정화 (UI 스레드 signal 경유)
+- 오버레이는 선곡 화면에서만 표시
+- 오버레이 위치 저장/복원 (`overlay.position_file`)
+- 매칭 실패/빈 OCR 시 기본 상태(`곡을 선택하세요`)로 복귀
+- ROI 오버레이는 디버그 용도로 토글
 
 ---
 
-## 남은 과제
+## 설정 포인트 (핵심)
 
-- OCR 전처리 개선 (특수문자/다국어 혼합)
-- 작곡가 OCR 오인식 보정 규칙
-- 버튼 모드(4B/5B/6B/8B) 자동 감지
-- 설정 UI 제공 (현재는 JSON 수동 편집)
+- `screen_capture`
+  - `logo_*`, `freestyle_*`
+  - `left_title_*`, `right_title_*`, `left_composer_*`
+- `jacket_matcher`
+  - `similarity_threshold`, `match_interval_sec`, `jacket_*`
+- `varchive`
+  - `fuzzy_threshold` (단일 fuzzy 제어값)
+
+---
+
+## 최근 반영된 변경
+
+- 재킷 매칭 성공 상태 유지로 불필요한 OCR fallback 감소
+- 로고 OCR 부분 인식 허용으로 선곡 판정 안정화
+- `song_id` 기준 ImageDB 조회/삭제, unique 인덱스 도입
+- `image_db.py` 실행 시 대화형 CLI 진입
+- HOG/Hash 구현을 OpenCV+NumPy로 정리
+  - `scikit-image`, `Pillow`, `ImageHash` 의존 제거
+- PyInstaller spec/requirements 정리
+- 단일 인스턴스 실행 보장
+- 재킷 수동 등록(F10) 기능 제거 (일반 사용자 입력 경로 부재)
+
+---
+
+## 다음 개발 우선순위
+
+1. 현재 선택된 버튼 모드/난이도 감지
+2. 곡명 OCR 제거(재킷/직접 선택 감지 기반으로 전환)
+3. 선택 패턴과 유사 난이도 추천
+4. 기능 안정화 후 경량화
+- 패키지 크기
+- 시작 시간
+- 런타임 메모리/CPU
+
+---
+
+## 리스크/메모
+
+- 인식 알고리즘 변경(HOG/Hash) 이후 기존 재킷 인덱스와 점수 분포 차이가 있을 수 있음
+- 필요 시 인덱스 재생성 권장
