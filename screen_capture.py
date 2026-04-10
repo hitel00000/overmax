@@ -208,7 +208,7 @@ class ScreenCapture:
 
     async def _process_frame(self, sct, rect: WindowRect):
         # 1. 선곡화면 감지
-        is_song_select = await self._detect_song_select(sct, rect)
+        is_song_select, is_leaving = await self._detect_song_select(sct, rect)
 
         if is_song_select != self._is_song_select:
             self._is_song_select = is_song_select
@@ -221,6 +221,11 @@ class ScreenCapture:
             # 선곡화면이 아니면 모드/난이도 상태 초기화
             self._mode_history.clear()
             self._diff_history.clear()
+            return
+
+        # 인식률이 하락 중이면 선곡창을 벗어나는 중이므로 인식 skip
+        if is_leaving:
+            self.log("선곡 판정 하락 중 - 인식 skip")
             return
 
         # 2. 전체 화면 스냅샷 (모드/난이도 감지 + 재킷 공유용)
@@ -465,7 +470,15 @@ class ScreenCapture:
     # 선곡화면 감지
     # ------------------------------------------------------------------
 
-    async def _detect_song_select(self, sct, rect: WindowRect) -> bool:
+    async def _detect_song_select(self, sct, rect: WindowRect) -> tuple[bool, bool]:
+        """
+        선곡화면 여부와 "이탈 중" 여부를 함께 반환한다.
+
+        반환: (is_song_select, is_leaving)
+          - is_leaving=True: 현재는 선곡화면이지만 히스토리 후반부 hit_rate가
+            전반부보다 낮아 화면을 벗어나는 중으로 판단됨.
+            이 경우 재킷/OCR 등 무거운 인식을 skip하는 것이 권장된다.
+        """
         logo_now = await self._detect_freestyle_logo(sct, rect)
         self._freestyle_history.append(logo_now)
         sample_count = len(self._freestyle_history)
@@ -477,18 +490,29 @@ class ScreenCapture:
                 sample_count >= max(1, FREESTYLE_OFF_MIN_SAMPLES)
                 and ratio <= FREESTYLE_OFF_RATIO
             )
-            is_logo_majority = not should_turn_off
+            is_song_select = not should_turn_off
         else:
-            is_logo_majority = (
+            is_song_select = (
                 sample_count >= max(1, FREESTYLE_ON_MIN_SAMPLES)
                 and ratio >= FREESTYLE_ON_RATIO
             )
 
+        # 이탈 중 판정: 히스토리를 전반/후반으로 나눠 후반 hit_rate < 전반이면 하락 중
+        is_leaving = False
+        if is_song_select and sample_count >= 4:
+            half = sample_count // 2
+            history_list = list(self._freestyle_history)
+            first_half_ratio  = sum(history_list[:half]) / half
+            second_half_ratio = sum(history_list[half:]) / (sample_count - half)
+            if second_half_ratio < first_half_ratio:
+                is_leaving = True
+
         self.log(
             f"선곡판정 버퍼: hit={hit_count}/{sample_count} "
-            f"(ratio={ratio:.2f}) -> {'선곡' if is_logo_majority else '기타'}"
+            f"(ratio={ratio:.2f}) -> {'선곡' if is_song_select else '기타'}"
+            + (f" [이탈중]" if is_leaving else "")
         )
-        return is_logo_majority
+        return is_song_select, is_leaving
 
     async def _detect_freestyle_logo(self, sct, rect: WindowRect) -> bool:
         logo_region = {
