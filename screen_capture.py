@@ -220,13 +220,9 @@ class ScreenCapture:
         }
         full_frame = np.array(sct.grab(full_region))  # BGRA
 
-        # 3. 버튼 모드 / 난이도 감지 (주기 제한)
         now = time.time()
-        if now - self._last_mode_diff_ts >= MODE_DIFF_INTERVAL:
-            self._last_mode_diff_ts = now
-            self._update_mode_diff(full_frame)
 
-        # 4. 재킷 이미지 캡처 (full_frame에서 ROI 잘라내기)
+        # 3. 재킷 이미지 캡처 (full_frame에서 ROI 잘라내기)
         h, w = full_frame.shape[:2]
         jx1 = int(w * JACKET_X_START)
         jy1 = int(h * JACKET_Y_START)
@@ -234,7 +230,7 @@ class ScreenCapture:
         jy2 = int(h * JACKET_Y_END)
         jacket_img = full_frame[jy1:jy2, jx1:jx2]
 
-        # 5. 재킷 매칭 시도 (주기 제한)
+        # 4. 재킷 매칭 시도 (주기 제한)
         jacket_matched = (
             self._last_jacket_matched
             and self.image_db is not None
@@ -284,6 +280,12 @@ class ScreenCapture:
                 else:
                     jacket_matched = False
                     self._last_jacket_matched = False
+
+        # 5. 버튼 모드 / 난이도 감지 (주기 제한)
+        if jacket_matched:
+            if now - self._last_mode_diff_ts >= MODE_DIFF_INTERVAL:
+                self._last_mode_diff_ts = now
+                self._update_mode_diff(full_frame)
 
         # 6. OCR fallback (재킷 매칭 실패 시)
         if not jacket_matched:
