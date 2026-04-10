@@ -12,8 +12,8 @@ mode_diff_detector.py - 버튼 모드 및 선택된 난이도 감지
 
 난이도 감지 (NM 기준, HD/MX/SC는 x 오프셋):
     위치1 (97, 487), 위치2 (100, 492)
-    선택 안 됨: 위치1 ≈ #BDBEC2  &  위치1 !≈ 위치2 (색 차이 큼)
-    선택 됨:   위치1 ≈ #FEFEFF  &  위치1 ≈ 위치2 (색 차이 작음)
+    선택 안 됨: 위치1 !≈ 위치2 (색 차이 큼)
+    선택 됨:   위치1 ≈ 위치2 (색 차이 작음)
 
     각 난이도 x 오프셋 (1920 기준):
         NM=0, HD=120, MX=240, SC=360
@@ -64,10 +64,6 @@ _DIFF_X_OFFSETS: dict[str, float] = {
     "MX": 240.0,
     "SC": 360.0,
 }
-
-# 선택/비선택 기준색 (BGR)
-_SELECTED_COLOR   = (0xFF, 0xFE, 0xFE)   # #FEFEFF
-_UNSELECTED_COLOR = (0xC2, 0xBE, 0xBD)   # #BDBEC2
 
 _COLOR_TOLERANCE   = 20   # 기준색과의 최대 유클리드 거리
 _SAME_PIX_TOLERANCE = 18  # 위치1 ↔ 위치2 색 차이 임계치 (같다고 판단)
@@ -145,10 +141,9 @@ def detect_difficulty(frame_bgra: np.ndarray) -> Optional[str]:
     감지 실패 시 None 반환.
 
     판정 로직:
-      각 난이도의 위치1을 확인:
-        - 위치1 ≈ #FEFEFF (selected color)
+      각 난이도의 위치1과 위치2을 확인:
         - 위치1 과 위치2 색 차이가 작다 (같은 영역이므로 일관성 확인)
-      두 조건 모두 만족하면 해당 난이도 "선택됨"으로 판정.
+      만족하면 해당 난이도 "선택됨"으로 판정.
     """
     h, w = frame_bgra.shape[:2]
 
@@ -165,14 +160,11 @@ def detect_difficulty(frame_bgra: np.ndarray) -> Optional[str]:
         c1 = _pixel_at(frame_bgra, p1_rx, p1_ry)
         c2 = _pixel_at(frame_bgra, p2_rx, p2_ry)
 
-        dist_to_selected   = _color_dist(c1, _SELECTED_COLOR)
-        dist_to_unselected = _color_dist(c1, _UNSELECTED_COLOR)
         dist_c1_c2         = _color_dist(c1, c2)
 
         is_same_pixels   = dist_c1_c2 < _SAME_PIX_TOLERANCE
-        is_selected_hue  = dist_to_selected < _COLOR_TOLERANCE
 
-        if is_selected_hue and is_same_pixels:
+        if is_same_pixels:
             selected_diff = diff
             break
 
