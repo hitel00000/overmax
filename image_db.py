@@ -11,7 +11,7 @@ import numpy as np
 class ImageDB:
     """Perceptual-hash + HOG + ORB 기반 경량 이미지 매칭 DB."""
 
-    def __init__(self, db_path: str = "cache/image_index.db", similarity_threshold: float = 0.5):
+    def __init__(self, db_path: str = "cache/image_index.db", similarity_threshold: float = 0.7):
         self.db_path = Path(db_path)
         self.similarity_threshold = float(similarity_threshold)
         self.is_ready = False

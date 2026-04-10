@@ -60,23 +60,6 @@ FREESTYLE_ON_MIN_SAMPLES = int(SCREEN_CAPTURE_SETTINGS["freestyle_on_min_samples
 FREESTYLE_OFF_RATIO = float(SCREEN_CAPTURE_SETTINGS["freestyle_off_ratio"])
 FREESTYLE_OFF_MIN_SAMPLES = int(SCREEN_CAPTURE_SETTINGS["freestyle_off_min_samples"])
 
-# OCR ROI
-LEFT_TITLE_X_START = float(SCREEN_CAPTURE_SETTINGS["left_title_x_start"])
-LEFT_TITLE_X_END   = float(SCREEN_CAPTURE_SETTINGS["left_title_x_end"])
-LEFT_TITLE_Y_START = float(SCREEN_CAPTURE_SETTINGS["left_title_y_start"])
-LEFT_TITLE_Y_END   = float(SCREEN_CAPTURE_SETTINGS["left_title_y_end"])
-
-RIGHT_TITLE_X_START = float(SCREEN_CAPTURE_SETTINGS["right_title_x_start"])
-RIGHT_TITLE_X_END   = float(SCREEN_CAPTURE_SETTINGS["right_title_x_end"])
-RIGHT_TITLE_Y_START = float(SCREEN_CAPTURE_SETTINGS["right_title_y_start"])
-RIGHT_TITLE_Y_END   = float(SCREEN_CAPTURE_SETTINGS["right_title_y_end"])
-RIGHT_TITLE_PAD_PX = int(SCREEN_CAPTURE_SETTINGS["right_title_pad_px"])
-
-LEFT_COMPOSER_X_START = float(SCREEN_CAPTURE_SETTINGS["left_composer_x_start"])
-LEFT_COMPOSER_X_END   = float(SCREEN_CAPTURE_SETTINGS["left_composer_x_end"])
-LEFT_COMPOSER_Y_START = float(SCREEN_CAPTURE_SETTINGS["left_composer_y_start"])
-LEFT_COMPOSER_Y_END   = float(SCREEN_CAPTURE_SETTINGS["left_composer_y_end"])
-
 # 재킷 ROI
 JACKET_X_START = float(JACKET_SETTINGS["jacket_x_start"])
 JACKET_X_END   = float(JACKET_SETTINGS["jacket_x_end"])
@@ -293,9 +276,6 @@ class ScreenCapture:
                             jacket_matched = True
                             self._last_jacket_matched = True
                         else:
-                            self.log(
-                                f"재킷 매칭 결과가 숫자 song_id가 아님: '{song_id}' -> OCR fallback"
-                            )
                             jacket_matched = False
                             self._last_jacket_matched = False
                     else:
@@ -304,8 +284,6 @@ class ScreenCapture:
                 else:
                     jacket_matched = False
                     self._last_jacket_matched = False
-                    if JACKET_SIMILARITY_LOG:
-                        self.log("재킷 매칭 실패 → OCR fallback")
 
         # 6. OCR fallback (재킷 매칭 실패 시)
         if not jacket_matched:
@@ -361,50 +339,7 @@ class ScreenCapture:
     # ------------------------------------------------------------------
 
     async def _ocr_fallback(self, sct, rect: WindowRect):
-        """OCR로 곡명/작곡가 추출 (재킷 매칭 실패 시 사용)"""
-        left_region = self._region_from_ratio(
-            rect,
-            LEFT_TITLE_X_START, LEFT_TITLE_X_END,
-            LEFT_TITLE_Y_START, LEFT_TITLE_Y_END,
-        )
-        left_raw = await self._ocr_windows(np.array(sct.grab(left_region)))
-        left_title = self._normalize_title_text(left_raw)
-
-        right_region = self._region_from_ratio(
-            rect,
-            RIGHT_TITLE_X_START, RIGHT_TITLE_X_END,
-            RIGHT_TITLE_Y_START, RIGHT_TITLE_Y_END,
-        )
-        right_raw = await self._ocr_windows(np.array(sct.grab(right_region)))
-        right_title = self._normalize_title_text(right_raw)
-
-        composer_region = self._region_from_ratio(
-            rect,
-            LEFT_COMPOSER_X_START, LEFT_COMPOSER_X_END,
-            LEFT_COMPOSER_Y_START, LEFT_COMPOSER_Y_END,
-        )
-        composer_raw = await self._ocr_windows(np.array(sct.grab(composer_region)))
-        composer = self._normalize_composer_text(composer_raw)
-
-        title = self._choose_title(left_title, right_title)
-        self.log(
-            f"OCR 후보: left='{left_title}' / right='{right_title}' / "
-            f"composer='{composer}' -> 선택='{title}'"
-        )
-
-        if not title:
-            song_key = "ocr::empty"
-            if song_key != self._last_song_key:
-                self._last_song_key = song_key
-                if self.on_song_changed:
-                    self.on_song_changed("", "")
-            return
-
-        song_key = f"ocr::{title}::{composer}".strip("::")
-        if title and song_key != self._last_song_key:
-            self._last_song_key = song_key
-            if self.on_song_changed:
-                self.on_song_changed(title, composer)
+        return  # OCR fallback 비활성 (재킷 매칭 우선)
 
     # ------------------------------------------------------------------
     # ROI 헬퍼

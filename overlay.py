@@ -44,18 +44,6 @@ LOGO_X_START = float(SCREEN_CAPTURE_SETTINGS["logo_x_start"])
 LOGO_X_END = float(SCREEN_CAPTURE_SETTINGS["logo_x_end"])
 LOGO_Y_START = float(SCREEN_CAPTURE_SETTINGS["logo_y_start"])
 LOGO_Y_END = float(SCREEN_CAPTURE_SETTINGS["logo_y_end"])
-LEFT_TITLE_X_START = float(SCREEN_CAPTURE_SETTINGS["left_title_x_start"])
-LEFT_TITLE_X_END = float(SCREEN_CAPTURE_SETTINGS["left_title_x_end"])
-LEFT_TITLE_Y_START = float(SCREEN_CAPTURE_SETTINGS["left_title_y_start"])
-LEFT_TITLE_Y_END = float(SCREEN_CAPTURE_SETTINGS["left_title_y_end"])
-RIGHT_TITLE_X_START = float(SCREEN_CAPTURE_SETTINGS["right_title_x_start"])
-RIGHT_TITLE_X_END = float(SCREEN_CAPTURE_SETTINGS["right_title_x_end"])
-RIGHT_TITLE_Y_START = float(SCREEN_CAPTURE_SETTINGS["right_title_y_start"])
-RIGHT_TITLE_Y_END = float(SCREEN_CAPTURE_SETTINGS["right_title_y_end"])
-LEFT_COMPOSER_X_START = float(SCREEN_CAPTURE_SETTINGS["left_composer_x_start"])
-LEFT_COMPOSER_X_END = float(SCREEN_CAPTURE_SETTINGS["left_composer_x_end"])
-LEFT_COMPOSER_Y_START = float(SCREEN_CAPTURE_SETTINGS["left_composer_y_start"])
-LEFT_COMPOSER_Y_END = float(SCREEN_CAPTURE_SETTINGS["left_composer_y_end"])
 JACKET_X_START = float(JACKET_SETTINGS["jacket_x_start"])
 JACKET_X_END   = float(JACKET_SETTINGS["jacket_x_end"])
 JACKET_Y_START = float(JACKET_SETTINGS["jacket_y_start"])
@@ -304,24 +292,6 @@ class RoiOverlayWindow(QWidget):
             self._ratio_rect(LOGO_X_START, LOGO_Y_START, LOGO_X_END, LOGO_Y_END),
             QColor("#CC66FF"),
             "LOGO (FREESTYLE)",
-        )
-        self._draw_box(
-            painter,
-            self._ratio_rect(LEFT_TITLE_X_START, LEFT_TITLE_Y_START, LEFT_TITLE_X_END, LEFT_TITLE_Y_END),
-            QColor("#FF4D4D"),
-            "LEFT TITLE OCR",
-        )
-        self._draw_box(
-            painter,
-            self._ratio_rect(RIGHT_TITLE_X_START, RIGHT_TITLE_Y_START, RIGHT_TITLE_X_END, RIGHT_TITLE_Y_END),
-            QColor("#4D7CFF"),
-            "RIGHT TITLE OCR",
-        )
-        self._draw_box(
-            painter,
-            self._ratio_rect(LEFT_COMPOSER_X_START, LEFT_COMPOSER_Y_START, LEFT_COMPOSER_X_END, LEFT_COMPOSER_Y_END),
-            QColor("#FFD84D"),
-            "COMPOSER OCR",
         )
         self._draw_box(
             painter,
