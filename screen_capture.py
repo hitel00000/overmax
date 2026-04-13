@@ -9,6 +9,7 @@ screen_capture.py - 화면 캡처 및 OCR 모듈 (재킷 매칭 우선 버전)
   - 버튼 모드(4B/5B/6B/8B) 감지
   - 선택된 난이도(NM/HD/MX/SC) 감지
   - on_mode_diff_changed 콜백
+  - Rate OCR 자동 수집 → RecordDB 저장
 """
 
 import time
@@ -77,11 +78,22 @@ _MODE_DIFF_SETTINGS = SETTINGS.get("mode_diff_detector", {})
 MODE_DIFF_INTERVAL = float(_MODE_DIFF_SETTINGS.get("interval_sec", 0.15))
 MODE_DIFF_HISTORY  = int(_MODE_DIFF_SETTINGS.get("history_size", 3))
 
+# Rate OCR 관련 (1920x1080 기준 픽셀 좌표)
+_RATE_X1, _RATE_Y1 = 176, 583
+_RATE_X2, _RATE_Y2 = 270, 605   # 오른쪽 여유 확보 (100.00% 대응)
+RATE_OCR_INTERVAL  = 1.5        # 같은 패턴 재OCR 최소 간격 (초)
+
 
 class ScreenCapture:
-    def __init__(self, tracker: WindowTracker, image_db: Optional[ImageDB] = None):
+    def __init__(
+        self,
+        tracker: WindowTracker,
+        image_db: Optional[ImageDB] = None,
+        record_db=None,   # RecordDB | None
+    ):
         self.tracker = tracker
-        self.image_db = image_db  # None이면 재킷 매칭 비활성
+        self.image_db = image_db
+        self.record_db = record_db
 
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -93,7 +105,6 @@ class ScreenCapture:
         self.on_screen_changed:    Optional[Callable[[bool], None]]           = None
         self.on_debug_log:         Optional[Callable[[str], None]]            = None
         self.on_mode_diff_changed: Optional[Callable[[str, str], None]]       = None
-        # ^ (button_mode, difficulty)  ex) ("4B", "MX")
 
         # asyncio
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -113,9 +124,12 @@ class ScreenCapture:
         self._last_mode_diff_ts = 0.0
         self._last_mode: Optional[str] = None
         self._last_diff: Optional[str] = None
-        # 안정화 히스토리 (연속 N회 일치해야 콜백 발화)
         self._mode_history: deque[Optional[str]] = deque(maxlen=MODE_DIFF_HISTORY)
         self._diff_history: deque[Optional[str]] = deque(maxlen=MODE_DIFF_HISTORY)
+
+        # Rate OCR 상태
+        self._last_rate_ocr_ts: float = 0.0
+        self._last_rate_key:    str   = ""   # "song_id:mode:diff"
 
         # Windows OCR 엔진
         self.ocr_engine = None
@@ -155,7 +169,11 @@ class ScreenCapture:
         self._thread = threading.Thread(target=self._loop_entry, daemon=True)
         self._thread.start()
         jacket_status = "활성" if (self.image_db and self.image_db.is_ready) else "비활성"
-        self.log(f"시작됨 (Windows OCR: {WINDOWS_OCR_AVAILABLE}, 재킷 매칭: {jacket_status})")
+        record_status = "활성" if (self.record_db and self.record_db.is_ready) else "비활성"
+        self.log(
+            f"시작됨 (Windows OCR: {WINDOWS_OCR_AVAILABLE}, "
+            f"재킷 매칭: {jacket_status}, 기록 수집: {record_status})"
+        )
 
     def stop(self):
         self._running = False
@@ -201,17 +219,15 @@ class ScreenCapture:
 
         if not is_song_select:
             self._last_jacket_matched = False
-            # 선곡화면이 아니면 모드/난이도 상태 초기화
             self._mode_history.clear()
             self._diff_history.clear()
             return
 
-        # 인식률이 하락 중이면 선곡창을 벗어나는 중이므로 인식 skip
         if is_leaving:
             self.log("선곡 판정 하락 중 - 인식 skip")
             return
 
-        # 2. 전체 화면 스냅샷 (모드/난이도 감지 + 재킷 공유용)
+        # 2. 전체 화면 스냅샷
         full_region = {
             "top":    rect.top,
             "left":   rect.left,
@@ -222,7 +238,7 @@ class ScreenCapture:
 
         now = time.time()
 
-        # 3. 재킷 이미지 캡처 (full_frame에서 ROI 잘라내기)
+        # 3. 재킷 ROI
         h, w = full_frame.shape[:2]
         jx1 = int(w * JACKET_X_START)
         jy1 = int(h * JACKET_Y_START)
@@ -230,7 +246,7 @@ class ScreenCapture:
         jy2 = int(h * JACKET_Y_END)
         jacket_img = full_frame[jy1:jy2, jx1:jx2]
 
-        # 4. 재킷 매칭 시도 (주기 제한)
+        # 4. 재킷 매칭
         jacket_matched = (
             self._last_jacket_matched
             and self.image_db is not None
@@ -266,6 +282,8 @@ class ScreenCapture:
                     song_key = f"jacket::{song_id}"
                     if song_key != self._last_song_key:
                         self._last_song_key = song_key
+                        # 곡이 바뀌면 Rate 키 초기화 (새 곡에서 즉시 OCR 가능하게)
+                        self._last_rate_key = ""
                         if str(song_id).isdigit():
                             if self.on_song_changed:
                                 self.on_song_changed(int(song_id))
@@ -281,35 +299,35 @@ class ScreenCapture:
                     jacket_matched = False
                     self._last_jacket_matched = False
 
-        # 5. 버튼 모드 / 난이도 감지 (주기 제한)
+        # 5. 버튼 모드 / 난이도 감지
         if jacket_matched:
             if now - self._last_mode_diff_ts >= MODE_DIFF_INTERVAL:
                 self._last_mode_diff_ts = now
                 self._update_mode_diff(full_frame)
 
-        # 6. OCR fallback (재킷 매칭 실패 시)
+            # 6. Rate OCR (song_id + mode + diff 모두 확정된 경우)
+            await self._try_record_rate(full_frame, now)
+
+        # 7. OCR fallback
         if not jacket_matched:
             await self._ocr_fallback(sct, rect)
 
     # ------------------------------------------------------------------
-    # 버튼 모드 / 난이도 감지 (히스토리 안정화 포함)
+    # 버튼 모드 / 난이도 감지
     # ------------------------------------------------------------------
 
     def _update_mode_diff(self, full_frame: np.ndarray):
-        """full_frame(BGRA)에서 모드/난이도를 감지하고 히스토리 안정화 후 콜백."""
         raw_mode, raw_diff = detect_mode_and_difficulty(full_frame)
 
         self._mode_history.append(raw_mode)
         self._diff_history.append(raw_diff)
 
-        # 히스토리가 가득 차지 않으면 아직 판정하지 않음
         if (
             len(self._mode_history) < MODE_DIFF_HISTORY
             or len(self._diff_history) < MODE_DIFF_HISTORY
         ):
             return
 
-        # 과반수 값을 stable 값으로 채택
         stable_mode = self._majority(self._mode_history)
         stable_diff = self._majority(self._diff_history)
 
@@ -318,16 +336,16 @@ class ScreenCapture:
             f"stable=({stable_mode},{stable_diff})"
         )
 
-        # 값이 바뀐 경우에만 콜백
         if stable_mode != self._last_mode or stable_diff != self._last_diff:
             self._last_mode = stable_mode
             self._last_diff = stable_diff
+            # 모드/난이도가 바뀌면 Rate 키 초기화 (새 조합 즉시 OCR 가능하게)
+            self._last_rate_key = ""
             if self.on_mode_diff_changed and stable_mode and stable_diff:
                 self.on_mode_diff_changed(stable_mode, stable_diff)
 
     @staticmethod
     def _majority(history: deque) -> Optional[str]:
-        """None이 아닌 값 중 최빈값 반환. 동률이면 최근 값 우선."""
         counts: dict[str, int] = {}
         for v in history:
             if v is not None:
@@ -337,22 +355,97 @@ class ScreenCapture:
         return max(counts, key=lambda k: counts[k])
 
     # ------------------------------------------------------------------
-    # OCR fallback
+    # Rate OCR + RecordDB 저장
+    # ------------------------------------------------------------------
+
+    async def _try_record_rate(self, full_frame: np.ndarray, now: float):
+        """
+        현재 확정된 song_id / mode / diff 조합의 Rate를 OCR로 읽어 RecordDB에 저장.
+        - 세 값 중 하나라도 없으면 skip
+        - 같은 조합은 RATE_OCR_INTERVAL 이내 재시도 안 함
+        """
+        song_key = self._last_song_key
+        mode     = self._last_mode
+        diff     = self._last_diff
+
+        if not song_key.startswith("jacket::"):
+            return
+        try:
+            song_id = int(song_key.split("::")[1])
+        except (IndexError, ValueError):
+            return
+
+        if not mode or not diff:
+            return
+
+        rate_key = f"{song_id}:{mode}:{diff}"
+        if rate_key == self._last_rate_key and (now - self._last_rate_ocr_ts) < RATE_OCR_INTERVAL:
+            return
+
+        self._last_rate_ocr_ts = now
+        self._last_rate_key    = rate_key
+
+        # Rate 영역 크롭 (해상도 대응)
+        h, w = full_frame.shape[:2]
+        sx, sy = w / 1920.0, h / 1080.0
+        x1 = int(_RATE_X1 * sx)
+        y1 = int(_RATE_Y1 * sy)
+        x2 = int(_RATE_X2 * sx)
+        y2 = int(_RATE_Y2 * sy)
+        roi_bgra = full_frame[y1:y2, x1:x2]
+
+        text = await self._ocr_windows(roi_bgra)
+        rate = self._parse_rate(text)
+
+        if rate is None:
+            if not text:
+                self.log(f"Rate OCR 빈 결과 ({song_id} {mode}/{diff}) - 이진화 재시도")
+                text = await self._ocr_windows(roi_bgra, force_invert=True)
+                rate = self._parse_rate(text)
+            if rate is None:
+                self.log(f"Rate OCR 파싱 실패: '{text}' ({song_id} {mode}/{diff})")
+                return
+
+        self.log(f"Rate OCR: {song_id} {mode}/{diff} = {rate:.2f}% (raw='{text}')")
+
+        if rate == 0.0:
+            self.log(f"Rate 0.00% - 미플레이로 간주, 저장 skip")
+            return
+
+        if self.record_db is not None and self.record_db.is_ready:
+            self.record_db.upsert(song_id, mode, diff, rate)
+
+    @staticmethod
+    def _parse_rate(text: str) -> Optional[float]:
+        """OCR 결과에서 Rate(%) 수치 추출."""
+        text = text.strip()
+        # 정상 케이스: 숫자.숫자%  ex) 99.04%, 100.00%, 0.00%
+        m = re.search(r"(\d{1,3})[.,](\d{2})\s*%?", text)
+        if m:
+            val = float(f"{m.group(1)}.{m.group(2)}")
+            if 0.0 <= val <= 100.0:
+                return val
+        # 소수점 없이 붙은 경우 ex) 9904 → 99.04, 10000 → 100.00
+        m = re.search(r"\b(\d{4,5})\b", text)
+        if m:
+            raw = m.group(1)
+            val = float(f"{raw[:2]}.{raw[2:]}") if len(raw) == 4 else float(f"{raw[:3]}.{raw[3:]}")
+            if 0.0 <= val <= 100.0:
+                return val
+        return None
+
+    # ------------------------------------------------------------------
+    # OCR fallback (현재 비활성)
     # ------------------------------------------------------------------
 
     async def _ocr_fallback(self, sct, rect: WindowRect):
-        return  # OCR fallback 비활성 (재킷 매칭 우선)
+        return
 
     # ------------------------------------------------------------------
     # ROI 헬퍼
     # ------------------------------------------------------------------
 
-    def _region_from_ratio(
-        self,
-        rect: WindowRect,
-        x_start: float, x_end: float,
-        y_start: float, y_end: float,
-    ) -> dict:
+    def _region_from_ratio(self, rect, x_start, x_end, y_start, y_end) -> dict:
         return {
             "top":    rect.top  + int(rect.height * y_start),
             "left":   rect.left + int(rect.width  * x_start),
@@ -361,7 +454,7 @@ class ScreenCapture:
         }
 
     # ------------------------------------------------------------------
-    # 텍스트 정규화
+    # 텍스트 정규화 (OCR fallback용, 현재 미사용)
     # ------------------------------------------------------------------
 
     def _normalize_title_text(self, raw: str) -> str:
@@ -382,8 +475,7 @@ class ScreenCapture:
         lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
         if not lines:
             return ""
-        composer = re.sub(r"\s+", " ", lines[0]).strip()
-        return composer
+        return re.sub(r"\s+", " ", lines[0]).strip()
 
     def _score_title(self, title: str, prefer_right: bool) -> int:
         if not title:
@@ -399,7 +491,7 @@ class ScreenCapture:
         return score
 
     def _choose_title(self, left_title: str, right_title: str) -> str:
-        left_score = self._score_title(left_title, prefer_right=False)
+        left_score  = self._score_title(left_title,  prefer_right=False)
         right_score = self._score_title(right_title, prefer_right=True)
         return right_title if right_score >= left_score else left_title
 
@@ -408,19 +500,11 @@ class ScreenCapture:
     # ------------------------------------------------------------------
 
     async def _detect_song_select(self, sct, rect: WindowRect) -> tuple[bool, bool]:
-        """
-        선곡화면 여부와 "이탈 중" 여부를 함께 반환한다.
-
-        반환: (is_song_select, is_leaving)
-          - is_leaving=True: 현재는 선곡화면이지만 히스토리 후반부 hit_rate가
-            전반부보다 낮아 화면을 벗어나는 중으로 판단됨.
-            이 경우 재킷/OCR 등 무거운 인식을 skip하는 것이 권장된다.
-        """
         logo_now = await self._detect_freestyle_logo(sct, rect)
         self._freestyle_history.append(logo_now)
         sample_count = len(self._freestyle_history)
-        hit_count = sum(1 for v in self._freestyle_history if v)
-        ratio = (hit_count / sample_count) if sample_count > 0 else 0.0
+        hit_count    = sum(1 for v in self._freestyle_history if v)
+        ratio        = (hit_count / sample_count) if sample_count > 0 else 0.0
 
         if self._is_song_select:
             should_turn_off = (
@@ -434,7 +518,6 @@ class ScreenCapture:
                 and ratio >= FREESTYLE_ON_RATIO
             )
 
-        # 이탈 중 판정: 히스토리를 전반/후반으로 나눠 후반 hit_rate < 전반이면 하락 중
         is_leaving = False
         if is_song_select and sample_count >= 4:
             half = sample_count // 2
@@ -461,9 +544,9 @@ class ScreenCapture:
         logo_img = np.array(sct.grab(logo_region))
         now = time.time()
         if now - self._last_logo_ocr_ts >= LOGO_OCR_COOLDOWN_SEC:
-            text = await self._ocr_windows(logo_img)
+            text       = await self._ocr_windows(logo_img)
             normalized = re.sub(r"[^A-Z0-9]", "", text.upper())
-            keyword = re.sub(r"[^A-Z0-9]", "", LOGO_OCR_KEYWORD.upper())
+            keyword    = re.sub(r"[^A-Z0-9]", "", LOGO_OCR_KEYWORD.upper())
             is_detected = False
 
             if keyword and normalized:
@@ -476,23 +559,20 @@ class ScreenCapture:
                         if part and part in normalized:
                             is_detected = True
                             break
-
                     if not is_detected:
                         ratio = difflib.SequenceMatcher(None, keyword, normalized).ratio()
                         is_detected = ratio >= 0.72
 
             self._last_logo_ocr_ok = is_detected
             self._last_logo_ocr_ts = now
-            self.log(
-                f"로고 OCR: '{text}' (norm='{normalized}') -> {self._last_logo_ocr_ok}"
-            )
+            self.log(f"로고 OCR: '{text}' (norm='{normalized}') -> {self._last_logo_ocr_ok}")
         return self._last_logo_ocr_ok
 
     # ------------------------------------------------------------------
     # Windows OCR
     # ------------------------------------------------------------------
 
-    async def _ocr_windows(self, img_bgra: np.ndarray) -> str:
+    async def _ocr_windows(self, img_bgra: np.ndarray, force_invert: bool = False) -> str:
         if not WINDOWS_OCR_AVAILABLE or self.ocr_engine is None:
             return ""
         try:
@@ -508,7 +588,10 @@ class ScreenCapture:
             gray = cv2.cvtColor(upscaled, cv2.COLOR_BGRA2GRAY)
 
             bg_mean = float(gray.mean())
-            if bg_mean < 128:
+            # force_invert=True면 자동 판단과 반대 방향으로 이진화
+            normal_is_dark = bg_mean < 128
+            use_invert = normal_is_dark if force_invert else not normal_is_dark
+            if not use_invert:
                 _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
             else:
                 _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)

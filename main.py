@@ -26,6 +26,7 @@ from overlay import OverlayController
 from global_hotkey import GlobalHotkey
 from debug_window import DebugController
 from image_db import ImageDB
+from record_db import RecordDB
 from settings import SETTINGS
 
 LOCAL_SONGS_JSON = runtime_patch.get_data_dir() / "cache" / "songs.json"
@@ -95,6 +96,15 @@ def main():
             print("[Main] ImageDB 초기화 실패 - OCR 전용 모드로 실행")
             image_db = None
 
+        # 2-1. RecordDB 초기화
+        record_db = RecordDB(db_path="cache/record.db")
+        if record_db.initialize():
+            stats = record_db.stats()
+            print(f"[Main] RecordDB 준비 완료: {stats.get('total', 0)}개 레코드")
+        else:
+            print("[Main] RecordDB 초기화 실패 - 기록 수집 비활성")
+            record_db = None
+
         # 3. 디버그 컨트롤러
         debug_ctrl = DebugController()
 
@@ -123,7 +133,7 @@ def main():
         tracker.start()
 
         # 6. 화면 캡처 + OCR
-        capture = ScreenCapture(tracker, image_db=image_db)
+        capture = ScreenCapture(tracker, image_db=image_db, record_db=record_db)
 
         def on_song_changed(song_id: int):
             song = db.search_by_id(song_id)
