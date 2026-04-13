@@ -148,21 +148,13 @@ class DiffCard(QFrame):
 # ------------------------------------------------------------------
 
 class ButtonModePanel(QFrame):
-    def __init__(self, mode: str, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.mode = mode
         self._cards: dict[str, DiffCard] = {}
-        self._active = False   # 현재 감지된 버튼 모드 여부
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(4)
-
-        # 모드 라벨
-        self._mode_label = QLabel(mode)
-        self._mode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._mode_label.setStyleSheet("color: #CCCCCC; font-size: 11px; font-weight: bold;")
-        layout.addWidget(self._mode_label)
 
         # 난이도 카드 (가로 배열)
         cards_layout = QHBoxLayout()
@@ -173,37 +165,14 @@ class ButtonModePanel(QFrame):
             cards_layout.addWidget(card)
         layout.addLayout(cards_layout)
 
-        self._apply_style()
+        self.setStyleSheet("""
+            ButtonModePanel {
+                background: rgba(30, 30, 55, 200);
+                border: 1px solid rgba(150, 150, 255, 120);
+                border-radius: 8px;
+            }
+        """)
 
-    def _apply_style(self):
-        if self._active:
-            self.setStyleSheet("""
-                ButtonModePanel {
-                    background: rgba(30, 30, 55, 200);
-                    border: 1px solid rgba(150, 150, 255, 120);
-                    border-radius: 8px;
-                }
-            """)
-            self._mode_label.setStyleSheet(
-                "color: #AAAAFF; font-size: 11px; font-weight: bold;"
-            )
-        else:
-            self.setStyleSheet("""
-                ButtonModePanel {
-                    background: rgba(20, 20, 30, 160);
-                    border: 1px solid rgba(255,255,255,30);
-                    border-radius: 8px;
-                }
-            """)
-            self._mode_label.setStyleSheet(
-                "color: #CCCCCC; font-size: 11px; font-weight: bold;"
-            )
-
-    def set_active(self, active: bool):
-        """이 패널이 현재 선택된 버튼 모드인지 표시."""
-        if self._active != active:
-            self._active = active
-            self._apply_style()
 
     def set_selected_diff(self, diff: Optional[str]):
         """특정 난이도 카드를 선택 상태로, 나머지는 해제."""
@@ -333,7 +302,8 @@ class OverlayWindow(QWidget):
         self.signals = signals
         self._current_mode: Optional[str] = None
         self._current_diff: Optional[str] = None
-        self._panels: dict[str, ButtonModePanel] = {}
+        self._patterns_cache: dict[str, list] = {}  # mode -> patterns list
+        self._pattern_panel: Optional[ButtonModePanel] = None
         self._song_label: Optional[QLabel] = None
         self._mode_indicator: Optional[QLabel] = None
         self._dragging = False
@@ -394,11 +364,9 @@ class OverlayWindow(QWidget):
         )
         main_layout.addWidget(self._mode_indicator)
 
-        # 버튼 모드 패널들
-        for mode in BUTTON_MODES:
-            panel = ButtonModePanel(mode)
-            self._panels[mode] = panel
-            main_layout.addWidget(panel)
+        # 버튼 모드 패널 (단일)
+        self._pattern_panel = ButtonModePanel()
+        main_layout.addWidget(self._pattern_panel)
 
         # 단축키 힌트
         hint_label = QLabel(HINT_LABEL)
@@ -424,11 +392,9 @@ class OverlayWindow(QWidget):
         형식: [{"mode": "4B", "patterns": [...]}, ...]
         """
         self._song_label.setText(title)
-        for item in all_patterns:
-            mode = item["mode"]
-            if mode in self._panels:
-                self._panels[mode].update_patterns(item["patterns"])
-        # 곡 변경 후 현재 선택 상태 재적용
+        # 모든 모드 데이터를 캐싱
+        self._patterns_cache = {item["mode"]: item["patterns"] for item in all_patterns}
+        # 현재 선택된 모드 혹은 기본 모드(4B)로 갱신
         self._apply_mode_diff_highlight()
 
     def _on_screen_changed(self, is_song_select: bool):
@@ -454,19 +420,22 @@ class OverlayWindow(QWidget):
         self._apply_mode_diff_highlight()
 
     def _apply_mode_diff_highlight(self):
-        """패널 활성화 + 난이도 카드 선택 상태 반영."""
-        for mode, panel in self._panels.items():
-            is_active = (mode == self._current_mode)
-            panel.set_active(is_active)
-            if is_active:
-                panel.set_selected_diff(self._current_diff)
-            else:
-                panel.set_selected_diff(None)
+        """단일 패널에 현재 모드 데이터 적용 및 하이라이트."""
+        # 감지된 모드가 없으면 기본으로 4B를 표시하거나, 필요 시 빈 상태 유지
+        display_mode = self._current_mode or "4B"
+        patterns = self._patterns_cache.get(display_mode, [])
+        
+        if self._pattern_panel:
+            self._pattern_panel.update_patterns(patterns)
+            self._pattern_panel.set_selected_diff(self._current_diff)
 
         # 인디케이터 텍스트 갱신
         mode_str = self._current_mode or "—"
         diff_str = self._current_diff or "—"
         self._mode_indicator.setText(f"현재: {mode_str}  /  {diff_str}")
+
+        # 창 크기 재조정
+        self.adjustSize()
 
     def set_user_move_callback(self, callback):
         self._user_move_cb = callback
