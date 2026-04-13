@@ -62,7 +62,7 @@ class RecommendEntry:
 
     @property
     def is_played(self) -> bool:
-        return self.rate is not None and self.rate > 0.0
+        return self.rate is not None
 
     @property
     def is_perfect(self) -> bool:
@@ -198,13 +198,13 @@ class Recommender:
                 entry.rate = rate_map[key]
 
         # 4. 정렬
-        #   - 기록 있음(rate > 0) → rate 낮은 순
-        #   - 미탐색(None)        → floor 오름차순
+        #   1. 기록 있음: rate 낮은 순 (연습이 필요한 약한 패턴 우선)
+        #   2. 기록 없음: floor/level 낮은 순 (신규 도전)
         def sort_key(e: RecommendEntry) -> tuple:
             if e.is_played:
-                return (0, e.rate or 0.0, e.floor or 0.0)
+                return (0, e.rate, e.floor or 0.0)
             else:
-                return (1, 0.0, e.floor or 0.0)
+                return (1, e.floor or 0.0, 0.0)
 
         candidates.sort(key=sort_key)
         return candidates[:max_results]

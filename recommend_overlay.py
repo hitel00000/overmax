@@ -220,7 +220,6 @@ class RecommendOverlay(QWidget):
         self._scroll = None  # 스크롤 제거
         self._list_widget = self._list_container
         self._list_layout = list_layout
-        self._list_layout.addStretch()
 
         inner.addWidget(self._list_container)
 
@@ -246,8 +245,8 @@ class RecommendOverlay(QWidget):
 
     def _rebuild_list(self):
         try:
-            # 기존 행 제거 (맨 끝 stretch 제외)
-            while self._list_layout.count() > 1:
+            # 레이아웃 내의 모든 위젯과 스페이스 제거
+            while self._list_layout.count() > 0:
                 item = self._list_layout.takeAt(0)
                 if item and item.widget():
                     item.widget().deleteLater()
@@ -255,6 +254,8 @@ class RecommendOverlay(QWidget):
             if self._no_selection:
                 self._pivot_label.setText("선택된 패턴이 없습니다")
                 self._count_label.setText("")
+                # 선택된 패턴 없을 때도 레이아웃 균형을 위해 stretch 추가
+                self._list_layout.addStretch()
                 return
 
             self._pivot_label.setText(f"기준: {self._pivot_str}")
@@ -263,13 +264,17 @@ class RecommendOverlay(QWidget):
                 empty = QLabel("유사한 패턴이 없습니다")
                 empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 empty.setStyleSheet("color: #555555; font-size: 11px; padding: 20px;")
-                self._list_layout.insertWidget(0, empty)
+                self._list_layout.addWidget(empty)
+                self._list_layout.addStretch()
                 self._count_label.setText("")
                 return
 
             for entry in self._entries:
                 row = PatternRow(entry)
-                self._list_layout.addWidget(row)  # insertWidget 대신 addWidget
+                self._list_layout.addWidget(row)
+
+            # 아래쪽에 여백을 추가하여 목록을 위로 밀어올림
+            self._list_layout.addStretch()
 
             played = sum(1 for e in self._entries if e.is_played)
             self._count_label.setText(f"총 {len(self._entries)}개  |  기록 있음 {played}개")
