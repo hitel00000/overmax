@@ -631,7 +631,7 @@ class OverlayController:
         if self._window is not None:
             self._window.toggle_visibility()
 
-    def run(self, debug_ctrl=None):
+    def run(self, debug_ctrl=None, recommend_ctrl=None):
         """Qt 이벤트 루프 실행 (메인 스레드에서 호출)"""
         if not PYQT_AVAILABLE:
             print("[Overlay] PyQt6 없음, 콘솔 모드로 실행")
@@ -666,6 +666,9 @@ class OverlayController:
             self._debug_toggle_cb = debug_ctrl.toggle_window
         else:
             self._debug_toggle_cb = None
+
+        if recommend_ctrl is not None:
+            recommend_ctrl.create_window()
 
         # 트레이 아이콘 설정
         self._setup_tray_icon()

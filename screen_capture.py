@@ -105,6 +105,7 @@ class ScreenCapture:
         self.on_screen_changed:    Optional[Callable[[bool], None]]           = None
         self.on_debug_log:         Optional[Callable[[str], None]]            = None
         self.on_mode_diff_changed: Optional[Callable[[str, str], None]]       = None
+        self.on_record_updated:    Optional[Callable[[], None]]               = None
 
         # asyncio
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -413,7 +414,9 @@ class ScreenCapture:
             return
 
         if self.record_db is not None and self.record_db.is_ready:
-            self.record_db.upsert(song_id, mode, diff, rate)
+            if self.record_db.upsert(song_id, mode, diff, rate):
+                if self.on_record_updated:
+                    self.on_record_updated()
 
     @staticmethod
     def _parse_rate(text: str) -> Optional[float]:
