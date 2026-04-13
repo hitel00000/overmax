@@ -16,7 +16,8 @@ import runtime_patch
 try:
     from PyQt6.QtWidgets import (
         QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout,
-        QFrame, QGraphicsOpacityEffect, QSystemTrayIcon, QMenu, QStyle
+        QFrame, QGraphicsOpacityEffect, QSystemTrayIcon, QMenu, QStyle,
+        QScrollArea
     )
     from PyQt6.QtCore import (
         Qt, QTimer, pyqtSignal, QObject, QPoint, QRect
@@ -31,6 +32,8 @@ except ImportError:
     PYQT_AVAILABLE = False
 
 from varchive import VArchiveDB, BUTTON_MODES, DIFFICULTIES, DIFF_COLORS
+from recommend import Recommender, RecommendEntry
+from record_db import RecordDB
 
 OVERLAY_SETTINGS = SETTINGS["overlay"]
 TOGGLE_HOTKEY = str(OVERLAY_SETTINGS["toggle_hotkey"])
@@ -60,6 +63,7 @@ class OverlaySignals(QObject):
     position_changed = pyqtSignal(int, int, int, int)   # 창 위치
     roi_enabled_changed = pyqtSignal(bool)        # ROI 표시 on/off
     mode_diff_changed = pyqtSignal(str, str)      # (button_mode, difficulty)
+    recommend_ready = pyqtSignal(list, str, bool) # (entries, pivot_str, no_selection)
 
 
 # ------------------------------------------------------------------
@@ -141,6 +145,110 @@ class DiffCard(QFrame):
             font = QFont("Arial", 9)
             painter.setFont(font)
             painter.drawText(QRect(0, 44, self.width(), 16), Qt.AlignmentFlag.AlignHCenter, "-")
+
+
+# ------------------------------------------------------------------
+# 추천 패턴 행 위젯
+# ------------------------------------------------------------------
+
+class PatternRow(QFrame):
+    def __init__(self, entry: RecommendEntry, parent=None):
+        super().__init__(parent)
+        self.entry = entry
+        self._setup_ui()
+
+    def _setup_ui(self):
+        try:
+            self.setFixedHeight(34)
+            self.setStyleSheet("background: rgba(25, 25, 40, 180); border: 1px solid rgba(255,255,255,20); border-radius: 4px;")
+
+            layout = QHBoxLayout(self)
+            layout.setContentsMargins(8, 2, 8, 2)
+            layout.setSpacing(6)
+
+            e = self.entry
+
+            # 난이도 뱃지
+            badge = QLabel(e.difficulty)
+            badge.setFixedWidth(32)
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            badge.setStyleSheet(f"background: {e.color}; color: white; font-size: 10px; font-weight: bold; border-radius: 2px; padding: 1px;")
+            layout.addWidget(badge)
+
+            # floor 표시
+            floor_str = e.floor_name if e.floor_name else (f"Lv.{e.level}" if e.level else "?")
+            floor_label = QLabel(floor_str)
+            floor_label.setFixedWidth(34)
+            floor_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            floor_label.setStyleSheet("color: #FFD6A5; font-size: 11px; font-weight: bold;")
+            layout.addWidget(floor_label)
+
+            # 구분선
+            sep = QFrame()
+            sep.setFrameShape(QFrame.Shape.VLine)
+            sep.setStyleSheet("color: rgba(255,255,255,30);")
+            layout.addWidget(sep)
+
+            # 곡명 + 작곡가
+            name_col = QVBoxLayout()
+            name_col.setSpacing(1)
+            name_col.setContentsMargins(0, 0, 0, 0)
+
+            song_label = QLabel(e.song_name)
+            song_label.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: bold;")
+            song_label.setMaximumWidth(160)
+            try:
+                elided = song_label.fontMetrics().elidedText(
+                    e.song_name, Qt.TextElideMode.ElideRight, 160
+                )
+                song_label.setText(elided)
+            except Exception:
+                song_label.setText(e.song_name[:15] + "..." if len(e.song_name) > 15 else e.song_name)
+            name_col.addWidget(song_label)
+
+            comp_label = QLabel(e.composer)
+            comp_label.setStyleSheet("color: #777777; font-size: 9px;")
+            comp_label.setMaximumWidth(160)
+            try:
+                comp_elided = comp_label.fontMetrics().elidedText(
+                    e.composer, Qt.TextElideMode.ElideRight, 160
+                )
+                comp_label.setText(comp_elided)
+            except Exception:
+                comp_label.setText(e.composer[:15] + "..." if len(e.composer) > 15 else e.composer)
+            name_col.addWidget(comp_label)
+
+            layout.addLayout(name_col)
+            layout.addStretch()
+
+            # Rate
+            if e.is_played:
+                rate_label = QLabel(f"{e.rate:.2f}%")
+                rate_label.setFixedWidth(52)
+                rate_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                rate_label.setStyleSheet(
+                    f"color: {self._rate_color(e.rate)}; font-size: 11px; font-weight: bold;"
+                )
+                layout.addWidget(rate_label)
+            else:
+                dash = QLabel("—")
+                dash.setFixedWidth(52)
+                dash.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                dash.setStyleSheet("color: #444444; font-size: 11px;")
+                layout.addWidget(dash)
+        except Exception as ex:
+            print(f"[PatternRow] _setup_ui 오류: {ex}")
+
+    @staticmethod
+    def _rate_color(rate: float) -> str:
+        if rate >= 99.0:
+            return "#FFD700"
+        elif rate >= 95.0:
+            return "#7EC8E3"
+        elif rate >= 90.0:
+            return "#B5EAD7"
+        else:
+            return "#FF9999"
 
 
 # ------------------------------------------------------------------
@@ -368,11 +476,48 @@ class OverlayWindow(QWidget):
         self._pattern_panel = ButtonModePanel()
         main_layout.addWidget(self._pattern_panel)
 
-        # 단축키 힌트
-        hint_label = QLabel(HINT_LABEL)
-        hint_label.setStyleSheet("color: rgba(255,255,255,60); font-size: 8px;")
-        hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(hint_label)
+        # ----------------------------------------------------------
+        # 유사 난이도 추천 섹션
+        # ----------------------------------------------------------
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet("color: rgba(255,255,255,15);")
+        main_layout.addWidget(line)
+
+        rec_header = QHBoxLayout()
+        rec_title = QLabel("유사 난이도 추천")
+        rec_title.setStyleSheet("color: #7B68EE; font-size: 10px; font-weight: bold;")
+        rec_header.addWidget(rec_title)
+        rec_header.addStretch()
+        self._rec_count_label = QLabel("")
+        self._rec_count_label.setStyleSheet("color: #555555; font-size: 8px;")
+        rec_header.addWidget(self._rec_count_label)
+        main_layout.addLayout(rec_header)
+
+        self._rec_scroll = QScrollArea()
+        self._rec_scroll.setWidgetResizable(True)
+        self._rec_scroll.setFixedHeight(210)  # 34px * 6개 정도 표시
+        self._rec_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._rec_scroll.setStyleSheet("""
+            QScrollArea { background: transparent; }
+            QScrollBar:vertical {
+                background: transparent;
+                width: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(123, 104, 238, 80);
+                border-radius: 2px;
+            }
+        """)
+
+        self._rec_widget = QWidget()
+        self._rec_widget.setStyleSheet("background: transparent;")
+        self._rec_layout = QVBoxLayout(self._rec_widget)
+        self._rec_layout.setContentsMargins(0, 0, 4, 0)
+        self._rec_layout.setSpacing(4)
+        
+        self._rec_scroll.setWidget(self._rec_widget)
+        main_layout.addWidget(self._rec_scroll)
 
         self.adjustSize()
 
@@ -381,6 +526,36 @@ class OverlayWindow(QWidget):
         self.signals.screen_changed.connect(self._on_screen_changed)
         self.signals.position_changed.connect(self._on_game_window_moved)
         self.signals.mode_diff_changed.connect(self._on_mode_diff_changed)
+        self.signals.recommend_ready.connect(self._on_recommend_ready)
+
+    def _on_recommend_ready(self, entries: list[RecommendEntry], pivot_str: str, no_selection: bool):
+        """추천 목록 UI 갱신"""
+        try:
+            # 기존 목록 청소
+            while self._rec_layout.count() > 0:
+                item = self._rec_layout.takeAt(0)
+                if item and item.widget():
+                    item.widget().deleteLater()
+
+            if no_selection or not entries:
+                empty = QLabel("추천 결과 없음" if not no_selection else "패턴을 감지하는 중...")
+                empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                empty.setStyleSheet("color: #444444; font-size: 10px; padding: 20px;")
+                self._rec_layout.addWidget(empty)
+                self._rec_layout.addStretch()
+                self._rec_count_label.setText("")
+                return
+
+            for entry in entries:
+                row = PatternRow(entry)
+                self._rec_layout.addWidget(row)
+            self._rec_layout.addStretch()
+
+            played = sum(1 for e in entries if e.is_played)
+            self._rec_count_label.setText(f"{len(entries)}개 결과 (기록 {played})")
+            
+        except Exception as e:
+            print(f"[Overlay] _on_recommend_ready 오류: {e}")
 
     # ------------------------------------------------------------------
     # 슬롯
@@ -489,8 +664,10 @@ class OverlayWindow(QWidget):
 # ------------------------------------------------------------------
 
 class OverlayController:
-    def __init__(self, db: VArchiveDB):
+    def __init__(self, db: VArchiveDB, record_db: RecordDB):
         self.db = db
+        self.record_db = record_db
+        self.recommender = Recommender(db, record_db)
         self.signals = OverlaySignals()
         self._app: Optional[QApplication] = None
         self._window: Optional[OverlayWindow] = None
@@ -498,34 +675,17 @@ class OverlayController:
         self._tray_icon: Optional[QSystemTrayIcon] = None
         self._debug_log_cb = None
         self._debug_toggle_cb = None
+
+        self._song_id: Optional[int] = None
+        self._current_mode: Optional[str] = None
+        self._current_diff: Optional[str] = None
+
         self._last_window_rect: Optional[tuple[int, int, int, int]] = None
         self._position_path = runtime_patch.get_data_dir() / OVERLAY_POSITION_FILE
 
     def _emit_initial_state(self):
         all_patterns = [{"mode": mode, "patterns": []} for mode in BUTTON_MODES]
         self.signals.song_changed.emit("곡을 선택하세요", all_patterns)
-
-    def notify_song(self, title: str = "", composer: str = "", song_id: int = None):
-        """OCR 스레드에서 호출 - 곡명/작곡가로 패턴 조회 후 시그널 emit"""
-        if not title:
-            self.log("곡명 인식 실패: UI 초기 상태로 복귀")
-            self._emit_initial_state()
-            return
-
-        self.log(f"곡 검색: ID={song_id} (title='{title}', composer='{composer}')")
-        song = self.db.search_by_id(song_id)
-
-        if not song:
-            self.log(f"'{title}' (composer='{composer}', id={song_id}) DB에서 찾을 수 없음")
-            self._emit_initial_state()
-            return
-
-        all_patterns = []
-        for mode in BUTTON_MODES:
-            patterns = self.db.format_pattern_info(song, mode)
-            all_patterns.append({"mode": mode, "patterns": patterns})
-
-        self.signals.song_changed.emit(song["name"], all_patterns)
 
     def notify_screen(self, is_song_select: bool):
         self.log(f"화면 알림: {'선곡화면' if is_song_select else '기타화면'}")
@@ -546,7 +706,53 @@ class OverlayController:
     def notify_mode_diff(self, mode: str, diff: str):
         """버튼 모드/난이도 변경 알림 (ScreenCapture 콜백에서 호출)"""
         self.log(f"모드/난이도: {mode} / {diff}")
-        self.signals.mode_diff_changed.emit(mode, diff)
+        if self._current_mode != mode or self._current_diff != diff:
+            self._current_mode = mode
+            self._current_diff = diff
+            self.signals.mode_diff_changed.emit(mode, diff)
+            self._refresh_recommendations()
+
+    def notify_song(self, title: str = "", composer: str = "", song_id: int = None):
+        """OCR 스레드에서 호출 - 곡명/작곡가로 패턴 조회 후 시그널 emit"""
+        if not title:
+            self.log("곡명 인식 실패: UI 초기 상태로 복귀")
+            self._song_id = None
+            self._emit_initial_state()
+            self._refresh_recommendations()
+            return
+
+        self.log(f"곡 검색: ID={song_id} (title='{title}', composer='{composer}')")
+        if self._song_id != song_id:
+            self._song_id = song_id
+            song = self.db.search_by_id(song_id)
+            if not song:
+                self.log(f"'{title}' (composer='{composer}', id={song_id}) DB에서 찾을 수 없음")
+                self._emit_initial_state()
+            else:
+                all_patterns = []
+                for mode in BUTTON_MODES:
+                    patterns = self.db.format_pattern_info(song, mode)
+                    all_patterns.append({"mode": mode, "patterns": patterns})
+                self.signals.song_changed.emit(song["name"], all_patterns)
+            
+            self._refresh_recommendations()
+
+    def notify_record_updated(self):
+        """새 기록 저장 알림 → 추천 리스트 갱신"""
+        self._refresh_recommendations()
+
+    def _refresh_recommendations(self):
+        if not self._song_id or not self._current_mode or not self._current_diff:
+            self.signals.recommend_ready.emit([], "", True)
+            return
+
+        entries = self.recommender.recommend(
+            song_id=self._song_id,
+            button_mode=self._current_mode,
+            difficulty=self._current_diff
+        )
+        pivot = f"{self._current_mode} {self._current_diff}"
+        self.signals.recommend_ready.emit(entries, pivot, False)
 
     def set_roi_overlay_enabled(self, enabled: bool):
         if self._roi_window is None:
@@ -637,7 +843,8 @@ class OverlayController:
             self._debug_toggle_cb = None
 
         if recommend_ctrl is not None:
-            recommend_ctrl.create_window()
+            # recommend_overlay는 더 이상 개별 창으로 사용하지 않음
+            pass
 
         # 트레이 아이콘 설정
         self._setup_tray_icon()

@@ -24,7 +24,6 @@ from window_tracker import WindowTracker
 from screen_capture import ScreenCapture
 from overlay import OverlayController
 from global_hotkey import GlobalHotkey
-from recommend_overlay import RecommendController
 from debug_window import DebugController
 from image_db import ImageDB
 from record_db import RecordDB
@@ -109,11 +108,9 @@ def main():
         # 3. 디버그 컨트롤러
         debug_ctrl = DebugController()
 
-        # 3-1. 추천 컨트롤러
-        recommend_ctrl = RecommendController(db, record_db) if record_db else None
 
         # 4. 오버레이 컨트롤러
-        controller = OverlayController(db)
+        controller = OverlayController(db, record_db)
 
         # 5. 창 추적기
         tracker = WindowTracker()
@@ -150,10 +147,6 @@ def main():
         
             debug_ctrl.log(f"[Main] 곡명 감지: '{title}' / composer: '{composer}'")
             controller.notify_song(title=title, composer=composer, song_id=song_id)
-        
-            # 추천 컨트롤러에도 알림
-            if recommend_ctrl:
-                recommend_ctrl.notify_song(song_id)
 
         def on_screen_changed(is_song_select: bool):
             debug_ctrl.log(f"[Main] 화면 상태: {'선곡화면' if is_song_select else '기타화면'}")
@@ -162,10 +155,6 @@ def main():
         def on_mode_diff_changed(mode: str, diff: str):
             debug_ctrl.log(f"[Main] 버튼 모드/난이도: {mode} / {diff}")
             controller.notify_mode_diff(mode, diff)
-        
-            # 추천 컨트롤러에도 알림
-            if recommend_ctrl:
-                recommend_ctrl.notify_mode_diff(mode, diff)
 
         capture.on_song_changed      = on_song_changed
         capture.on_screen_changed    = on_screen_changed
@@ -173,16 +162,14 @@ def main():
         capture.on_mode_diff_changed = on_mode_diff_changed
         controller._debug_log_cb     = debug_ctrl.log
 
-        if recommend_ctrl:
-            capture.on_record_updated = recommend_ctrl.notify_record_updated
+        if record_db:
+            capture.on_record_updated = controller.notify_record_updated
         
         hotkey = GlobalHotkey()
 
         # 표시/숨김 단축키
         hotkey.register(TOGGLE_HOTKEY, controller.toggle_visibility)  # 오버레이 토글
         # hotkey.register("F8", debug_ctrl.toggle_window)  # 디버그 창도 가능
-        if recommend_ctrl:
-            hotkey.register("F2", recommend_ctrl.toggle)
         hotkey.start()
 
         capture_thread = threading.Thread(target=capture.start, daemon=True)
@@ -195,7 +182,7 @@ def main():
 
         # 7. Qt 이벤트 루프
         try:
-            controller.run(debug_ctrl=debug_ctrl, recommend_ctrl=recommend_ctrl)
+            controller.run(debug_ctrl=debug_ctrl)
         except KeyboardInterrupt:
             print("\n[Main] 종료 중...")
         finally:
