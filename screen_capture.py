@@ -301,13 +301,14 @@ class ScreenCapture:
                     self._last_jacket_matched = False
 
         # 5. 버튼 모드 / 난이도 감지
+        raw_mode, raw_diff = (None, None)
         if jacket_matched:
-            if now - self._last_mode_diff_ts >= MODE_DIFF_INTERVAL:
-                self._last_mode_diff_ts = now
-                self._update_mode_diff(full_frame)
+            # 매 프레임 감지하여 히스토리 업데이트
+            raw_mode, raw_diff = self._update_mode_diff(full_frame)
 
             # 6. Rate OCR (song_id + mode + diff 모두 확정된 경우)
-            await self._try_record_rate(full_frame, now)
+            # 현재 프레임의 raw_mode/diff가 stable한 last_mode/diff와 일치할 때만 수행
+            await self._try_record_rate(full_frame, now, raw_mode, raw_diff)
 
         # 7. OCR fallback
         if not jacket_matched:
@@ -317,7 +318,7 @@ class ScreenCapture:
     # 버튼 모드 / 난이도 감지
     # ------------------------------------------------------------------
 
-    def _update_mode_diff(self, full_frame: np.ndarray):
+    def _update_mode_diff(self, full_frame: np.ndarray) -> tuple[Optional[str], Optional[str]]:
         raw_mode, raw_diff = detect_mode_and_difficulty(full_frame)
 
         self._mode_history.append(raw_mode)
@@ -327,23 +328,24 @@ class ScreenCapture:
             len(self._mode_history) < MODE_DIFF_HISTORY
             or len(self._diff_history) < MODE_DIFF_HISTORY
         ):
-            return
+            return raw_mode, raw_diff
 
         stable_mode = self._majority(self._mode_history)
         stable_diff = self._majority(self._diff_history)
 
-        self.log(
-            f"모드/난이도 감지: raw=({raw_mode},{raw_diff}) "
-            f"stable=({stable_mode},{stable_diff})"
-        )
-
         if stable_mode != self._last_mode or stable_diff != self._last_diff:
+            self.log(
+                f"모드/난이도 변경 감지: old=({self._last_mode},{self._last_diff}) "
+                f"new=({stable_mode},{stable_diff})"
+            )
             self._last_mode = stable_mode
             self._last_diff = stable_diff
             # 모드/난이도가 바뀌면 Rate 키 초기화 (새 조합 즉시 OCR 가능하게)
             self._last_rate_key = ""
             if self.on_mode_diff_changed and stable_mode and stable_diff:
                 self.on_mode_diff_changed(stable_mode, stable_diff)
+        
+        return raw_mode, raw_diff
 
     @staticmethod
     def _majority(history: deque) -> Optional[str]:
@@ -359,24 +361,28 @@ class ScreenCapture:
     # Rate OCR + RecordDB 저장
     # ------------------------------------------------------------------
 
-    async def _try_record_rate(self, full_frame: np.ndarray, now: float):
+    async def _try_record_rate(self, full_frame: np.ndarray, now: float, raw_mode: Optional[str], raw_diff: Optional[str]):
         """
         현재 확정된 song_id / mode / diff 조합의 Rate를 OCR로 읽어 RecordDB에 저장.
         - 세 값 중 하나라도 없으면 skip
+        - 현재 프레임의 raw_mode/diff가 stable한 값과 다르면 skip (전환 중인 프레임 방지)
         - 같은 조합은 RATE_OCR_INTERVAL 이내 재시도 안 함
         """
         song_key = self._last_song_key
         mode     = self._last_mode
         diff     = self._last_diff
 
-        if not song_key.startswith("jacket::"):
+        if not song_key.startswith("jacket::") or not mode or not diff:
             return
+
         try:
             song_id = int(song_key.split("::")[1])
         except (IndexError, ValueError):
             return
 
-        if not mode or not diff:
+        # 동기화 체크: 현재 프레임의 정보가 시스템이 알고 있는 stable 정보와 일치해야 함
+        if raw_mode != mode or raw_diff != diff:
+            # 잦은 로그 방지 (선택이 안정될 때까지 skip)
             return
 
         rate_key = f"{song_id}:{mode}:{diff}"
