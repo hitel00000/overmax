@@ -38,6 +38,8 @@ class GlobalHotkey:
 
     def stop(self):
         self._running = False
+        if self._thread:
+            self._thread.join(timeout=2)
 
     def _loop(self):
         user32 = ctypes.WinDLL("user32", use_last_error=True)

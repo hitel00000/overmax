@@ -199,8 +199,11 @@ def main():
         except KeyboardInterrupt:
             print("\n[Main] 종료 중...")
         finally:
+            hotkey.stop()
             capture.stop()
             tracker.stop()
+            if capture_thread.is_alive():
+                capture_thread.join(timeout=2)
     finally:
         _release_single_instance_mutex(mutex_handle)
 
