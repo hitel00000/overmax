@@ -80,7 +80,7 @@ class Recommender:
         button_mode: str,
         difficulty: str,
         floor_range: float = 0.0,
-        max_results: int = 10,
+        max_results: int = 5,
         same_mode_only: bool = True,
     ) -> list[RecommendEntry]:
         """

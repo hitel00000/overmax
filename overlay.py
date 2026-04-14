@@ -199,7 +199,7 @@ class PatternRow(QFrame):
             song_label.setMaximumWidth(160)
             try:
                 elided = song_label.fontMetrics().elidedText(
-                    e.song_name, Qt.TextElideMode.ElideRight, 160
+                    e.song_name, Qt.TextElideMode.ElideRight, 150
                 )
                 song_label.setText(elided)
             except Exception:
@@ -211,7 +211,7 @@ class PatternRow(QFrame):
             comp_label.setMaximumWidth(160)
             try:
                 comp_elided = comp_label.fontMetrics().elidedText(
-                    e.composer, Qt.TextElideMode.ElideRight, 160
+                    e.composer, Qt.TextElideMode.ElideRight, 150
                 )
                 comp_label.setText(comp_elided)
             except Exception:
@@ -431,7 +431,7 @@ class OverlayWindow(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        self.setMinimumWidth(320)
+        self.setFixedWidth(330)
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
@@ -496,7 +496,9 @@ class OverlayWindow(QWidget):
 
         self._rec_scroll = QScrollArea()
         self._rec_scroll.setWidgetResizable(True)
-        self._rec_scroll.setFixedHeight(210)  # 34px * 6개 정도 표시
+        self._rec_scroll.setFixedHeight(186)  # 34px * 5개 + 4px * 4개 (간격)
+        self._rec_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._rec_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._rec_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._rec_scroll.setStyleSheet("""
             QScrollArea { background: transparent; }
