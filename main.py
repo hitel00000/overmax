@@ -28,6 +28,7 @@ from debug_window import DebugController
 from image_db import ImageDB
 from record_db import RecordDB
 from settings import SETTINGS
+from steam_session import get_most_recent_steam_id
 
 LOCAL_SONGS_JSON = runtime_patch.get_data_dir() / "cache" / "songs.json"
 WINDOW_TITLE = str(SETTINGS["window_tracker"]["window_title"])
@@ -99,8 +100,17 @@ def main():
         # 2-1. RecordDB 초기화
         record_db = RecordDB(db_path="cache/record.db")
         if record_db.initialize():
+            initial_steam_id = get_most_recent_steam_id()
+            changed, before_sid, after_sid = record_db.set_steam_id(initial_steam_id)
+            if changed:
+                print(f"[Main] Steam 세션 갱신: {before_sid} -> {after_sid}")
+            else:
+                print(f"[Main] Steam 세션 유지: {after_sid}")
             stats = record_db.stats()
-            print(f"[Main] RecordDB 준비 완료: {stats.get('total', 0)}개 레코드")
+            print(
+                f"[Main] RecordDB 준비 완료: {stats.get('total', 0)}개 레코드 "
+                f"(steam_id={stats.get('steam_id', 'unknown')})"
+            )
         else:
             print("[Main] RecordDB 초기화 실패 - 기록 수집 비활성")
             record_db = None
@@ -115,7 +125,19 @@ def main():
         # 5. 창 추적기
         tracker = WindowTracker()
 
+        def refresh_steam_session(reason: str):
+            if not record_db:
+                return
+            steam_id = get_most_recent_steam_id()
+            changed, before_sid, after_sid = record_db.set_steam_id(steam_id)
+            if changed:
+                debug_ctrl.log(f"[Main] Steam 세션 갱신 ({reason}): {before_sid} -> {after_sid}")
+                controller.notify_record_updated()
+            else:
+                debug_ctrl.log(f"[Main] Steam 세션 유지 ({reason}): {after_sid}")
+
         def on_window_found(rect):
+            refresh_steam_session("게임 창 발견")
             debug_ctrl.log(
                 f"[Main] 게임 창 발견: {rect.width}x{rect.height} @ ({rect.left},{rect.top})"
             )

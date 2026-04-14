@@ -178,19 +178,7 @@ class Recommender:
         all_ids  = list({c.song_id for c in candidates})
         rate_map: dict[tuple[int, str, str], float] = {}
         if self.rdb.is_ready:
-            try:
-                import sqlite3
-                placeholders = ",".join("?" * len(all_ids))
-                with sqlite3.connect(self.rdb.db_path) as conn:
-                    rows = conn.execute(f"""
-                        SELECT song_id, button_mode, difficulty, rate
-                        FROM records
-                        WHERE song_id IN ({placeholders})
-                    """, [str(s) for s in all_ids]).fetchall()
-                for r in rows:
-                    rate_map[(int(r[0]), r[1], r[2])] = float(r[3])
-            except Exception as e:
-                print(f"[Recommender] rate 조회 실패: {e}")
+            rate_map = self.rdb.get_rate_map(all_ids)
 
         for entry in candidates:
             key = (entry.song_id, entry.button_mode, entry.difficulty)
