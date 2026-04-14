@@ -449,7 +449,7 @@ class OverlayWindow(QWidget):
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(10, 6, 10, 6)
 
-        badge = QLabel("V-Archive")
+        badge = QLabel("Overmax")
         badge.setStyleSheet("color: #7B68EE; font-size: 10px; font-weight: bold;")
         header_layout.addWidget(badge)
 
