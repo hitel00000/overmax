@@ -34,24 +34,17 @@ except ImportError:
 from varchive import VArchiveDB, BUTTON_MODES, DIFFICULTIES, DIFF_COLORS
 from recommend import Recommender, RecommendEntry
 from record_db import RecordDB
+from game_state import GameSessionState
+
+from ui.pattern_view import ButtonModePanel
+from ui.recommend_view import PatternRow
+from ui.navigation import RoiOverlayWindow
 
 OVERLAY_SETTINGS = SETTINGS["overlay"]
 TOGGLE_HOTKEY = str(OVERLAY_SETTINGS["toggle_hotkey"])
 TRAY_TOOLTIP = str(OVERLAY_SETTINGS["tray_tooltip"])
 HINT_LABEL = str(OVERLAY_SETTINGS["hint_label"])
 OVERLAY_POSITION_FILE = str(OVERLAY_SETTINGS["position_file"])
-SCREEN_CAPTURE_SETTINGS = SETTINGS["screen_capture"]
-JACKET_SETTINGS = SETTINGS["jacket_matcher"]
-
-LOGO_X_START = float(SCREEN_CAPTURE_SETTINGS["logo_x_start"])
-LOGO_X_END = float(SCREEN_CAPTURE_SETTINGS["logo_x_end"])
-LOGO_Y_START = float(SCREEN_CAPTURE_SETTINGS["logo_y_start"])
-LOGO_Y_END = float(SCREEN_CAPTURE_SETTINGS["logo_y_end"])
-JACKET_X_START = float(JACKET_SETTINGS["jacket_x_start"])
-JACKET_X_END   = float(JACKET_SETTINGS["jacket_x_end"])
-JACKET_Y_START = float(JACKET_SETTINGS["jacket_y_start"])
-JACKET_Y_END   = float(JACKET_SETTINGS["jacket_y_end"])
-
 
 # ------------------------------------------------------------------
 # 시그널 브릿지 (다른 스레드 → Qt 메인스레드)
@@ -66,337 +59,7 @@ class OverlaySignals(QObject):
     recommend_ready = pyqtSignal(list, str, bool) # (entries, pivot_str, no_selection)
 
 
-# ------------------------------------------------------------------
-# 난이도 카드 위젯
-# ------------------------------------------------------------------
-
-class DiffCard(QFrame):
-    def __init__(self, diff: str, parent=None):
-        super().__init__(parent)
-        self.diff = diff
-        self.color = QColor(DIFF_COLORS.get(diff, "#FFFFFF"))
-        self._level = None
-        self._floor_name = None
-        self._selected = False   # 현재 선택된 난이도 여부
-
-        self.setFixedSize(72, 64)
-        self.setStyleSheet("background: transparent;")
-
-    def set_info(self, level: Optional[int], floor_name: Optional[str]):
-        self._level = level
-        self._floor_name = floor_name
-        self.update()
-
-    def set_selected(self, selected: bool):
-        if self._selected != selected:
-            self._selected = selected
-            self.update()
-
-    def clear(self):
-        self._level = None
-        self._floor_name = None
-        self._selected = False
-        self.update()
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        if self._level is None:
-            # 비활성 상태
-            painter.setBrush(QBrush(QColor(60, 60, 60, 120)))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(0, 0, self.width(), self.height(), 6, 6)
-            return
-
-        # 배경
-        bg = QColor(self.color)
-        bg.setAlpha(200)
-        painter.setBrush(QBrush(bg))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(0, 0, self.width(), self.height(), 6, 6)
-
-        # 선택 테두리
-        if self._selected:
-            painter.setPen(QPen(QColor(255, 255, 255, 230), 2.5))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(1, 1, self.width() - 2, self.height() - 2, 5, 5)
-
-        # 난이도 라벨 (NM/HD/MX/SC)
-        painter.setPen(QPen(QColor(255, 255, 255, 200)))
-        font = QFont("Arial", 9, QFont.Weight.Bold)
-        painter.setFont(font)
-        painter.drawText(QRect(0, 6, self.width(), 16), Qt.AlignmentFlag.AlignHCenter, self.diff)
-
-        # 공식 레벨
-        painter.setPen(QPen(QColor(255, 255, 255)))
-        font = QFont("Arial", 18, QFont.Weight.Bold)
-        painter.setFont(font)
-        painter.drawText(QRect(0, 18, self.width(), 26), Qt.AlignmentFlag.AlignHCenter, str(self._level))
-
-        # 비공식 난이도 (floorName)
-        if self._floor_name:
-            painter.setPen(QPen(QColor(255, 255, 180)))
-            font = QFont("Arial", 10, QFont.Weight.Bold)
-            painter.setFont(font)
-            painter.drawText(QRect(0, 44, self.width(), 16), Qt.AlignmentFlag.AlignHCenter, self._floor_name)
-        else:
-            painter.setPen(QPen(QColor(200, 200, 200, 120)))
-            font = QFont("Arial", 9)
-            painter.setFont(font)
-            painter.drawText(QRect(0, 44, self.width(), 16), Qt.AlignmentFlag.AlignHCenter, "-")
-
-
-# ------------------------------------------------------------------
-# 추천 패턴 행 위젯
-# ------------------------------------------------------------------
-
-class PatternRow(QFrame):
-    def __init__(self, entry: RecommendEntry, parent=None):
-        super().__init__(parent)
-        self.entry = entry
-        self._setup_ui()
-
-    def _setup_ui(self):
-        try:
-            self.setFixedHeight(34)
-            self.setStyleSheet("background: rgba(25, 25, 40, 180); border: 1px solid rgba(255,255,255,20); border-radius: 4px;")
-
-            layout = QHBoxLayout(self)
-            layout.setContentsMargins(8, 2, 8, 2)
-            layout.setSpacing(6)
-
-            e = self.entry
-
-            # 난이도 뱃지
-            badge = QLabel(e.difficulty)
-            badge.setFixedWidth(32)
-            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            badge.setStyleSheet(f"background: {e.color}; color: white; font-size: 10px; font-weight: bold; border-radius: 2px; padding: 1px;")
-            layout.addWidget(badge)
-
-            # floor 표시
-            floor_str = e.floor_name if e.floor_name else (f"Lv.{e.level}" if e.level else "?")
-            floor_label = QLabel(floor_str)
-            floor_label.setFixedWidth(34)
-            floor_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            floor_label.setStyleSheet("color: #FFD6A5; font-size: 11px; font-weight: bold;")
-            layout.addWidget(floor_label)
-
-            # 구분선
-            sep = QFrame()
-            sep.setFrameShape(QFrame.Shape.VLine)
-            sep.setStyleSheet("color: rgba(255,255,255,30);")
-            layout.addWidget(sep)
-
-            # 곡명 + 작곡가
-            name_col = QVBoxLayout()
-            name_col.setSpacing(1)
-            name_col.setContentsMargins(0, 0, 0, 0)
-
-            song_label = QLabel(e.song_name)
-            song_label.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: bold;")
-            song_label.setMaximumWidth(160)
-            try:
-                elided = song_label.fontMetrics().elidedText(
-                    e.song_name, Qt.TextElideMode.ElideRight, 150
-                )
-                song_label.setText(elided)
-            except Exception:
-                song_label.setText(e.song_name[:15] + "..." if len(e.song_name) > 15 else e.song_name)
-            name_col.addWidget(song_label)
-
-            comp_label = QLabel(e.composer)
-            comp_label.setStyleSheet("color: #777777; font-size: 9px;")
-            comp_label.setMaximumWidth(160)
-            try:
-                comp_elided = comp_label.fontMetrics().elidedText(
-                    e.composer, Qt.TextElideMode.ElideRight, 150
-                )
-                comp_label.setText(comp_elided)
-            except Exception:
-                comp_label.setText(e.composer[:15] + "..." if len(e.composer) > 15 else e.composer)
-            name_col.addWidget(comp_label)
-
-            layout.addLayout(name_col)
-            layout.addStretch()
-
-            # Rate
-            if e.is_played:
-                rate_label = QLabel(f"{e.rate:.2f}%")
-                rate_label.setFixedWidth(52)
-                rate_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                rate_label.setStyleSheet(
-                    f"color: {self._rate_color(e.rate)}; font-size: 11px; font-weight: bold;"
-                )
-                layout.addWidget(rate_label)
-            else:
-                dash = QLabel("—")
-                dash.setFixedWidth(52)
-                dash.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                dash.setStyleSheet("color: #444444; font-size: 11px;")
-                layout.addWidget(dash)
-        except Exception as ex:
-            print(f"[PatternRow] _setup_ui 오류: {ex}")
-
-    @staticmethod
-    def _rate_color(rate: float) -> str:
-        if rate >= 99.0:
-            return "#FFD700"
-        elif rate >= 95.0:
-            return "#7EC8E3"
-        elif rate >= 90.0:
-            return "#B5EAD7"
-        else:
-            return "#FF9999"
-
-
-# ------------------------------------------------------------------
-# 버튼 모드 패널
-# ------------------------------------------------------------------
-
-class ButtonModePanel(QFrame):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._cards: dict[str, DiffCard] = {}
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(4)
-
-        # 난이도 카드 (가로 배열)
-        cards_layout = QHBoxLayout()
-        cards_layout.setSpacing(3)
-        for diff in DIFFICULTIES:
-            card = DiffCard(diff)
-            self._cards[diff] = card
-            cards_layout.addWidget(card)
-        layout.addLayout(cards_layout)
-
-        self.setStyleSheet("""
-            ButtonModePanel {
-                background: rgba(30, 30, 55, 200);
-                border: 1px solid rgba(150, 150, 255, 120);
-                border-radius: 8px;
-            }
-        """)
-
-
-    def set_selected_diff(self, diff: Optional[str]):
-        """특정 난이도 카드를 선택 상태로, 나머지는 해제."""
-        for d, card in self._cards.items():
-            card.set_selected(d == diff)
-
-    def update_patterns(self, patterns: list[dict]):
-        """패턴 정보로 카드 업데이트"""
-        pattern_map = {p["diff"]: p for p in patterns}
-        for diff, card in self._cards.items():
-            if diff in pattern_map:
-                p = pattern_map[diff]
-                card.set_info(p["level"], p.get("floorName"))
-            else:
-                card.clear()
-
-    def clear(self):
-        for card in self._cards.values():
-            card.clear()
-        self.set_selected_diff(None)
-
-
-class RoiOverlayWindow(QWidget):
-    """게임 화면 위에 OCR/검출 ROI를 선으로 표시하는 디버그 오버레이"""
-    def __init__(self):
-        super().__init__()
-        self._enabled = False
-        self._has_rect = False
-        self._setup_window()
-
-    def _setup_window(self):
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-
-    def set_game_rect(self, left: int, top: int, width: int, height: int):
-        self._has_rect = width > 0 and height > 0
-        if not self._has_rect:
-            self.hide()
-            return
-        self.setGeometry(left, top, width, height)
-        if self._enabled:
-            self.show()
-        self.update()
-
-    def set_enabled(self, enabled: bool):
-        self._enabled = enabled
-        if enabled and self._has_rect:
-            self.show()
-            self.raise_()
-        else:
-            self.hide()
-        self.update()
-
-    def is_enabled(self) -> bool:
-        return self._enabled
-
-    def _ratio_rect(self, rx1: float, ry1: float, rx2: float, ry2: float) -> QRect:
-        x = int(self.width() * rx1)
-        y = int(self.height() * ry1)
-        w = max(1, int(self.width() * (rx2 - rx1)))
-        h = max(1, int(self.height() * (ry2 - ry1)))
-        return QRect(x, y, w, h)
-
-    def _draw_box(self, painter: QPainter, rect: QRect, color: QColor, label: str):
-        painter.setPen(QPen(color, 2))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(rect)
-        painter.setPen(QPen(color, 1))
-        painter.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
-        painter.drawText(rect.left() + 4, max(12, rect.top() - 4), label)
-
-    def paintEvent(self, event):
-        if not self._enabled or not self._has_rect:
-            return
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        self._draw_box(
-            painter,
-            self._ratio_rect(LOGO_X_START, LOGO_Y_START, LOGO_X_END, LOGO_Y_END),
-            QColor("#CC66FF"),
-            "LOGO (FREESTYLE)",
-        )
-        self._draw_box(
-            painter,
-            self._ratio_rect(JACKET_X_START, JACKET_Y_START, JACKET_X_END, JACKET_Y_END),
-            QColor("#FF0000"),
-            "JACKET",
-        )
-
-        # 버튼 모드 감지 영역 (80~84, 130~134)
-        self._draw_box(
-            painter,
-            self._ratio_rect(80/1920, 130/1080, 85/1920, 135/1080),
-            QColor("#00FF88"),
-            "BTN MODE",
-        )
-
-        # 난이도 감지 위치 (NM 기준 위치1/위치2)
-        for i, (diff, x_off) in enumerate({"NM": 0, "HD": 120, "MX": 240, "SC": 360}.items()):
-            dx = x_off / 1920
-            # 위치1
-            rx1 = (97 / 1920) + dx
-            ry1 = 487 / 1080
-            self._draw_box(
-                painter,
-                self._ratio_rect(rx1 - 1/1920, ry1 - 1/1080, rx1 + 3/1920, ry1 + 3/1080),
-                QColor("#FFAA00"),
-                diff,
-            )
+# UI 컴포넌트들은 ui/ 폴더로 분리됨
 
 
 # ------------------------------------------------------------------
@@ -728,11 +391,14 @@ class OverlayController:
         self.signals.roi_enabled_changed.emit(False)
         self.signals.position_changed.emit(0, 0, 0, 0)
 
-    def notify_mode_diff(self, mode: str, diff: str, verified: bool = False):
-        """버튼 모드/난이도 변경 알림 (ScreenCapture 콜백에서 호출)"""
-        self.log(f"모드/난이도: {mode} / {diff} (Verified: {verified})")
-        
-        # 상태가 바뀌었거나 검증 수치가 달라졌을 때만 처리
+    def notify_state(self, state: GameSessionState):
+        """ScreenCapture에서 온 통합 상태 알림 처리"""
+        mode = state.mode
+        diff = state.diff
+        verified = state.is_stable
+        song_id = state.song_id
+
+        # 1. 모드/난이도 처리
         if (
             self._current_mode != mode 
             or self._current_diff != diff 
@@ -741,36 +407,29 @@ class OverlayController:
             self._current_mode = mode
             self._current_diff = diff
             self._last_verified = verified
-            
-            self.signals.mode_diff_changed.emit(mode, diff, verified)
-            
-            # 사용자 요청: 검증된 경우에만 추천 목록 갱신 (데이터 전송 중지 효과)
-            if verified:
-                self._refresh_recommendations()
+            self.signals.mode_diff_changed.emit(mode or "", diff or "", verified)
 
-    def notify_song(self, title: str = "", composer: str = "", song_id: int = None):
-        """OCR 스레드에서 호출 - 곡명/작곡가로 패턴 조회 후 시그널 emit"""
-        if not title:
-            self.log("곡명 인식 실패: UI 초기 상태로 복귀")
-            self._song_id = None
-            self._emit_initial_state()
-            self._refresh_recommendations()
-            return
-
-        self.log(f"곡 검색: ID={song_id} (title='{title}', composer='{composer}')")
+        # 2. 곡 정보 처리
         if self._song_id != song_id:
             self._song_id = song_id
-            song = self.db.search_by_id(song_id)
-            if not song:
-                self.log(f"'{title}' (composer='{composer}', id={song_id}) DB에서 찾을 수 없음")
+            if not song_id:
+                self.log("곡 ID 없음: UI 초기화")
                 self._emit_initial_state()
             else:
-                all_patterns = []
-                for mode in BUTTON_MODES:
-                    patterns = self.db.format_pattern_info(song, mode)
-                    all_patterns.append({"mode": mode, "patterns": patterns})
-                self.signals.song_changed.emit(song["name"], all_patterns)
-            
+                song = self.db.search_by_id(song_id)
+                if not song:
+                    self.log(f"ID={song_id}를 DB에서 찾을 수 없음")
+                    self._emit_initial_state()
+                else:
+                    self.log(f"곡 확정: {song['name']} (ID={song_id})")
+                    all_patterns = []
+                    for m in BUTTON_MODES:
+                        patterns = self.db.format_pattern_info(song, m)
+                        all_patterns.append({"mode": m, "patterns": patterns})
+                    self.signals.song_changed.emit(song["name"], all_patterns)
+
+        # 3. 추천 갱신 (안정 상태인 경우에만)
+        if verified:
             self._refresh_recommendations()
 
     def notify_record_updated(self):

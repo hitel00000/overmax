@@ -29,6 +29,7 @@ from image_db import ImageDB
 from record_db import RecordDB
 from settings import SETTINGS
 from steam_session import get_most_recent_steam_id
+from game_state import GameSessionState
 
 LOCAL_SONGS_JSON = runtime_patch.get_data_dir() / "cache" / "songs.json"
 WINDOW_TITLE = str(SETTINGS["window_tracker"]["window_title"])
@@ -158,30 +159,17 @@ def main():
         # 6. 화면 캡처 + OCR
         capture = ScreenCapture(tracker, image_db=image_db, record_db=record_db)
 
-        def on_song_changed(song_id: int):
-            song = db.search_by_id(song_id)
-            if not song:
-                debug_ctrl.log(f"[Main] 곡 정보를 찾을 수 없습니다: {song_id}")
-                return
-        
-            title    = song.get("name", "")
-            composer = song.get("composer", "")
-        
-            debug_ctrl.log(f"[Main] 곡명 감지: '{title}' / composer: '{composer}'")
-            controller.notify_song(title=title, composer=composer, song_id=song_id)
+        def on_state_changed(state: GameSessionState):
+            debug_ctrl.log(f"[Main] {state}")
+            controller.notify_state(state)
 
         def on_screen_changed(is_song_select: bool):
             debug_ctrl.log(f"[Main] 화면 상태: {'선곡화면' if is_song_select else '기타화면'}")
             controller.notify_screen(is_song_select)
 
-        def on_mode_diff_changed(mode: str, diff: str, verified: bool):
-            debug_ctrl.log(f"[Main] 버튼 모드/난이도: {mode} / {diff} (Verified: {verified})")
-            controller.notify_mode_diff(mode, diff, verified)
-
-        capture.on_song_changed      = on_song_changed
+        capture.on_state_changed     = on_state_changed
         capture.on_screen_changed    = on_screen_changed
         capture.on_debug_log         = debug_ctrl.log
-        capture.on_mode_diff_changed = on_mode_diff_changed
         controller._debug_log_cb     = debug_ctrl.log
 
         if record_db:

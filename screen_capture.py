@@ -33,6 +33,7 @@ except ImportError:
 from window_tracker import WindowTracker, WindowRect
 from image_db import ImageDB
 from mode_diff_detector import detect_mode_and_difficulty
+from game_state import GameSessionState
 
 # ------------------------------------------------------------------
 # 설정 상수 (비율 기반)
@@ -98,10 +99,9 @@ class ScreenCapture:
         self._is_song_select = False
 
         # 콜백
-        self.on_song_changed:      Optional[Callable[[int], None]]            = None
+        self.on_state_changed:     Optional[Callable[[GameSessionState], None]] = None
         self.on_screen_changed:    Optional[Callable[[bool], None]]           = None
         self.on_debug_log:         Optional[Callable[[str], None]]            = None
-        self.on_mode_diff_changed: Optional[Callable[[str, str], None]]       = None
         self.on_record_updated:    Optional[Callable[[], None]]               = None
 
         # asyncio
@@ -118,12 +118,8 @@ class ScreenCapture:
         self._last_jacket_thumb: Optional[np.ndarray] = None
         self._last_jacket_match_ts = 0.0
 
-        # 모드/난이도 + song_id 를 같은 프레임에서 읽어 N프레임 연속 동일하면 "안정" 판정
-        # 안정 상태가 되어야만 Rate OCR 실행 + 콜백에 verified=True 전달
         self._state_history: deque = deque(maxlen=max(1, MODE_DIFF_HISTORY))
-        self._confirmed_state: tuple = (None, None, None)   # 마지막으로 확정된 (song_id, mode, diff)
-        self._last_mode: Optional[str] = None
-        self._last_diff: Optional[str] = None
+        self._last_emitted_state: Optional[GameSessionState] = None
 
         # Rate OCR - 세션 내 이미 기록한 (song_id, mode, diff) 집합
         # 선곡화면 이탈(=게임플레이) 시 초기화되어 복귀 후 다시 읽음
@@ -219,10 +215,9 @@ class ScreenCapture:
 
         if not is_song_select:
             # 화면 이탈(게임 플레이 등) 시 상태 전부 초기화
-            # → 복귀 후 Rate OCR이 새로 실행되어 갱신된 기록을 읽어올 수 있음
             self._state_history.clear()
-            self._confirmed_state = (None, None, None)
             self._current_song_id = None
+            self._last_emitted_state = None
             self._recorded_states.clear()
             return
 
@@ -266,9 +261,6 @@ class ScreenCapture:
                 self._last_jacket_thumb = thumb
                 self._last_jacket_match_ts = now
 
-                # 이미지가 실제로 바뀐 경우 즉시 무효화
-                # → 새 곡이 확정되기 전까지 _state_history가 None으로 채워져
-                #   Rate OCR이 이전 곡 ID로 실행되지 않음
                 if image_changed:
                     self._current_song_id = None
 
@@ -278,11 +270,7 @@ class ScreenCapture:
                     if JACKET_SIMILARITY_LOG:
                         self.log(f"재킷 매칭: '{sid}' (유사도 {score:.4f})")
                     if str(sid).isdigit():
-                        new_id = int(sid)
-                        if new_id != self._current_song_id:
-                            self._current_song_id = new_id
-                            if self.on_song_changed:
-                                self.on_song_changed(new_id)
+                        self._current_song_id = int(sid)
                     else:
                         self._current_song_id = None
                 else:
@@ -291,14 +279,7 @@ class ScreenCapture:
         # 4. 모드/난이도 감지 (밝기 기반, OCR 없음)
         mode, diff, is_confident = detect_mode_and_difficulty(full_frame)
 
-        # 5. 모드/난이도가 바뀌었으면 콜백 (아직 미검증 상태)
-        if mode != self._last_mode or diff != self._last_diff:
-            self._last_mode, self._last_diff = mode, diff
-            self.log(f"모드/난이도 변경: {mode}/{diff}")
-            if self.on_mode_diff_changed and mode and diff:
-                self.on_mode_diff_changed(mode, diff, False)
-
-        # 6. 안정성 판정: 같은 프레임에서 읽은 (song_id, mode, diff)가 N프레임 연속 동일 + is_confident
+        # 5. 안정성 판정: 같은 프레임에서 읽은 (song_id, mode, diff)가 N프레임 연속 동일 + is_confident
         song_id = self._current_song_id
         current = (song_id, mode, diff)
         valid = all(current) and is_confident
@@ -311,22 +292,27 @@ class ScreenCapture:
             and history[0] is not None
         )
 
-        if not is_stable:
-            return
+        # 6. 통합 상태 객체 생성 및 배포
+        state = GameSessionState(
+            song_id=song_id,
+            mode=mode,
+            diff=diff,
+            is_stable=is_stable
+        )
 
-        # 7. 새 안정 상태 확정 시 verified 콜백
-        if current != self._confirmed_state:
-            self._confirmed_state = current
-            self._last_rate_ocr_ts = 0.0  # 새 상태 확정 시 즉시 시도 허용
-            self.log(f"상태 확정: song={song_id}, {mode}/{diff}")
-            if self.on_mode_diff_changed and mode and diff:
-                self.on_mode_diff_changed(mode, diff, True)
+        if state != self._last_emitted_state:
+            self._last_emitted_state = state
+            if state.is_stable:
+                self.log(f"상태 확정: {state}")
+                self._last_rate_ocr_ts = 0.0  # 새 상태 확정 시 즉시 시도 허용
+            else:
+                self.log(f"상태 감지: {state}")
+            
+            if self.on_state_changed:
+                self.on_state_changed(state)
 
-        # 8. Rate OCR — 같은 (song_id, mode, diff)는 세션당 한 번만 기록
-        #    근거: Rate(최고기록)는 플레이해서 갱신하지 않으면 변하지 않음
-        #    실패 시에는 _recorded_states에 추가하지 않아 재시도 허용
-        #    (단, 너무 잦은 재시도를 막기 위해 RATE_OCR_INTERVAL 쿨다운 유지)
-        if current not in self._recorded_states:
+        # 7. Rate OCR — 안정 상태일 때만 세션당 한 번 기록
+        if is_stable and current not in self._recorded_states:
             if now - self._last_rate_ocr_ts >= RATE_OCR_INTERVAL:
                 self._last_rate_ocr_ts = now
                 success = await self._do_record_rate(full_frame, song_id, mode, diff)
@@ -394,29 +380,24 @@ class ScreenCapture:
             "height": max(1, int(rect.height * (y_end - y_start))),
         }
 
-    # ------------------------------------------------------------------
-    # 텍스트 정규화 (OCR fallback용, 현재 미사용)
-    # ------------------------------------------------------------------
-
-    def _normalize_title_text(self, raw: str) -> str:
-        if not raw:
-            return ""
-        lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
-        if not lines:
-            return ""
-        title = lines[0]
-        if len(title) < 2 and len(lines) > 1:
-            title = lines[1]
-        title = re.sub(r"\s+", " ", title).strip()
-        return title
-
-    def _normalize_composer_text(self, raw: str) -> str:
-        if not raw:
-            return ""
-        lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
-        if not lines:
-            return ""
-        return re.sub(r"\s+", " ", lines[0]).strip()
+    def _parse_rate(self, text: str) -> Optional[float]:
+        """OCR 텍스트에서 숫자만 추출하여 float(%) 로 변환"""
+        if not text:
+            return None
+        # 숫자와 소수점만 남김 (Windows OCR은 종종 %를 9나 8로 오인할 수 있으므로 제거)
+        cleaned = re.sub(r"[^0-9.]", "", text)
+        try:
+            # 여러 개의 점이 찍힌 경우 마지막 점 기준으로 처리하거나 첫 번째 점 사용
+            if cleaned.count(".") > 1:
+                parts = cleaned.split(".")
+                cleaned = parts[0] + "." + "".join(parts[1:])
+            
+            val = float(cleaned)
+            if 0.0 <= val <= 100.0:
+                return val
+        except:
+            pass
+        return None
 
     # ------------------------------------------------------------------
     # 선곡화면 감지
