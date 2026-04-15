@@ -145,52 +145,53 @@ def detect_button_mode(frame_bgra: np.ndarray) -> Optional[str]:
     return best_mode
 
 
-def detect_difficulty(frame_bgra: np.ndarray) -> Optional[str]:
+def detect_difficulty(
+    frame_bgra: np.ndarray,
+    min_confident_margin: float = 15.0,
+) -> tuple[Optional[str], bool]:
     """
     현재 선택된 난이도 감지 (NM / HD / MX / SC).
     각 패널 영역의 평균 밝기를 계산하여 가장 밝은 패널을 선택된 것으로 판정.
+
+    반환: (diff, is_confident)
+      diff          : 감지된 난이도, 실패 시 None
+      is_confident  : 1위 패널이 2위보다 min_confident_margin 이상 밝으면 True
+                      (OCR 검증 없이 신뢰할 수 있는 수준)
     """
-    h, w = frame_bgra.shape[:2]
+    rx1 = _DIFF_ROI[0] / _W
+    ry1 = _DIFF_ROI[1] / _H
+    rx2 = _DIFF_ROI[2] / _W
+    ry2 = _DIFF_ROI[3] / _H
 
-    best_diff: Optional[str] = None
-    max_brightness = -1.0
-
-    # 1920x1080 기준 ROI
-    rx1, ry1, rx2, ry2 = _DIFF_ROI[0]/_W, _DIFF_ROI[1]/_H, _DIFF_ROI[2]/_W, _DIFF_ROI[3]/_H
-
+    brightnesses: dict[str, float] = {}
     for diff, x_offset_px in _DIFF_X_OFFSETS.items():
         dx = x_offset_px / _W
-        
-        # 해당 난이도 영역의 평균 BGR 추출
-        mean_bgr = _region_mean_bgr(
-            frame_bgra,
-            rx1 + dx, ry1,
-            rx2 + dx, ry2
-        )
-        
-        # 밝기 계산 (표준 가중치 또는 단순 평균)
-        # 여기서는 단순히 (B+G+R)/3 사용
-        brightness = sum(mean_bgr) / 3.0
+        mean_bgr = _region_mean_bgr(frame_bgra, rx1 + dx, ry1, rx2 + dx, ry2)
+        brightnesses[diff] = sum(mean_bgr) / 3.0
 
-        if brightness > max_brightness:
-            max_brightness = brightness
-            best_diff = diff
+    sorted_diffs = sorted(brightnesses, key=lambda d: brightnesses[d], reverse=True)
+    best_diff = sorted_diffs[0]
+    max_brightness = brightnesses[best_diff]
 
-    # 모든 패널이 너무 어두우면 (ex. 곡 전환 중) 인식 실패로 처리
-    # 0x30 = 48 -> 평균 48 미만이면 무시
+    # 모든 패널이 너무 어두우면 (ex. 곡 전환 중) 인식 실패
     if max_brightness < 45:
-        return None
+        return None, False
 
-    return best_diff
+    second_brightness = brightnesses[sorted_diffs[1]] if len(sorted_diffs) > 1 else 0.0
+    gap = max_brightness - second_brightness
+    is_confident = gap >= min_confident_margin
+
+    return best_diff, is_confident
 
 
 def detect_mode_and_difficulty(
     frame_bgra: np.ndarray,
-) -> tuple[Optional[str], Optional[str]]:
+) -> tuple[Optional[str], Optional[str], bool]:
     """
     버튼 모드와 선택된 난이도를 동시에 감지.
-    반환: (button_mode, difficulty)  ex) ("4B", "MX")
+    반환: (button_mode, difficulty, is_confident)
+      is_confident: 난이도 감지의 신뢰도 (밝기 마진 기반)
     """
     mode = detect_button_mode(frame_bgra)
-    diff = detect_difficulty(frame_bgra)
-    return mode, diff
+    diff, is_confident = detect_difficulty(frame_bgra)
+    return mode, diff, is_confident

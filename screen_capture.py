@@ -21,7 +21,6 @@ import time
 import threading
 import asyncio
 import re
-import difflib
 from collections import deque
 import numpy as np
 from typing import Optional, Callable
@@ -39,7 +38,7 @@ except ImportError:
 
 from window_tracker import WindowTracker, WindowRect
 from image_db import ImageDB
-from mode_diff_detector import detect_mode_and_difficulty, get_difficulty_roi
+from mode_diff_detector import detect_mode_and_difficulty
 
 # ------------------------------------------------------------------
 # 설정 상수 (비율 기반)
@@ -132,8 +131,6 @@ class ScreenCapture:
         self._mode_history: deque[Optional[str]] = deque(maxlen=MODE_DIFF_HISTORY)
         self._diff_history: deque[Optional[str]] = deque(maxlen=MODE_DIFF_HISTORY)
         self._diff_verified = False
-        self._verified_diff: Optional[str] = None
-        self._verify_task_running: bool = False
 
         # 스냅샷 기반 Rate OCR 제어
         # (song_id, mode, diff, verified) — 모두 같은 프레임에서 읽은 값
@@ -428,7 +425,7 @@ class ScreenCapture:
     # ------------------------------------------------------------------
 
     def _update_mode_diff(self, full_frame: np.ndarray) -> tuple[Optional[str], Optional[str]]:
-        raw_mode, raw_diff = detect_mode_and_difficulty(full_frame)
+        raw_mode, raw_diff, raw_confident = detect_mode_and_difficulty(full_frame)
 
         self._mode_history.append(raw_mode)
         self._diff_history.append(raw_diff)
@@ -452,97 +449,18 @@ class ScreenCapture:
 
             # 난이도가 바뀌면 검증 상태 초기화
             self._diff_verified = False
-            self._verified_diff = None
 
             if self.on_mode_diff_changed and stable_mode and stable_diff:
                 self.on_mode_diff_changed(stable_mode, stable_diff, False)
 
-        # 검증 태스크 실행 (미검증 + 태스크 미실행 상태일 때만)
-        if stable_diff and not self._diff_verified and not self._verify_task_running:
-            self._verify_task_running = True
-            asyncio.create_task(
-                self._verify_difficulty_async(full_frame, stable_diff)
-            )
+        # 밝기 마진이 충분하면 검증 완료 (OCR 없이 신뢰 가능)
+        if stable_diff and not self._diff_verified and raw_confident:
+            self.log(f"난이도 검증 완료(밝기): {stable_diff}")
+            self._diff_verified = True
+            if self.on_mode_diff_changed:
+                self.on_mode_diff_changed(stable_mode, stable_diff, True)
 
         return raw_mode, raw_diff
-
-    async def _verify_difficulty_async(self, full_frame: np.ndarray, diff: str):
-        """밝기 기반으로 감지된 난이도가 실제 맞는지 OCR로 검증."""
-        try:
-            if self._diff_verified and self._verified_diff == diff:
-                return
-
-            # ROI 추출
-            rx1, ry1, rx2, ry2 = get_difficulty_roi(diff)
-            h, w = full_frame.shape[:2]
-            x1, y1 = int(rx1 * w), int(ry1 * h)
-            x2, y2 = int(rx2 * w), int(ry2 * h)
-            roi_bgra = full_frame[y1:y2, x1:x2]
-
-            # 1차 시도
-            text = await self._ocr_windows(roi_bgra)
-            is_ok, match_info = self._check_difficulty_keywords(text, diff)
-
-            # 2차 시도 (반전 처리)
-            if not is_ok:
-                text_alt = await self._ocr_windows(roi_bgra, force_invert=True)
-                is_ok, match_info = self._check_difficulty_keywords(text_alt, diff)
-                if is_ok:
-                    text = text_alt
-
-            if is_ok:
-                if not self._diff_verified:
-                    self.log(f"난이도 검증 완료: {diff} (OCR: '{text}', match={match_info})")
-                self._diff_verified = True
-                self._verified_diff = diff
-
-                if self.on_mode_diff_changed:
-                    self.on_mode_diff_changed(self._last_mode, diff, True)
-            else:
-                log_key = f"FAILED_{diff}_{text}"
-                if self._verified_diff != log_key:
-                    self.log(f"난이도 검증 실패: {diff} (인식된 문자: '{text}')")
-                    self._verified_diff = log_key
-                self._diff_verified = False
-
-                if self.on_mode_diff_changed:
-                    self.on_mode_diff_changed(self._last_mode, diff, False)
-        finally:
-            self._verify_task_running = False
-
-    def _check_difficulty_keywords(self, text: str, expected_diff: str) -> tuple[bool, str]:
-        """OCR 텍스트와 기대 난이도 간의 키워드 매칭."""
-        normalized = text.upper().strip().replace(" ", "")
-        if not normalized:
-            return False, ""
-
-        keywords_map = {
-            "NM": ["NORMAL", "NORM"],
-            "HD": ["HARD"],
-            "MX": ["MAX", "MAXIMUM", "MAXIMUN"],
-            "SC": ["SC", "5C", "8C", "BC", "CC", "OC", "S.C"],
-        }
-
-        target_keywords = keywords_map.get(expected_diff, [])
-
-        # 단순 포함 여부
-        for k in target_keywords:
-            if k in normalized:
-                return True, f"'{k}'(exact)"
-
-        # 유사도 기반 퍼지 매칭
-        for k in target_keywords:
-            ratio = difflib.SequenceMatcher(None, k, normalized).ratio()
-            if ratio >= 0.7:
-                return True, f"'{k}'(sim={ratio:.2f})"
-
-            if len(normalized) >= 3:
-                for word in normalized.split():
-                    w_ratio = difflib.SequenceMatcher(None, k, word).ratio()
-                    if w_ratio >= 0.7:
-                        return True, f"'{k}'(sim={w_ratio:.2f} in '{word}')"
-
-        return False, ""
 
     @staticmethod
     def _majority(history: deque) -> Optional[str]:
