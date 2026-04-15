@@ -1,26 +1,20 @@
 """
-screen_capture.py - 화면 캡처 및 OCR 모듈 (재킷 매칭 우선 버전)
+screen_capture.py - 화면 캡처 및 OCR 모듈
 
-곡 감지 우선순위:
-  1. 재킷 이미지 매칭 (image_db.py)
-  2. OCR 기반 곡명/작곡가 추출 (fallback)
-
-추가:
-  - 버튼 모드(4B/5B/6B/8B) 감지
-  - 선택된 난이도(NM/HD/MX/SC) 감지
-  - on_mode_diff_changed 콜백
-  - Rate OCR 자동 수집 → RecordDB 저장
-
-Rate OCR 구조:
-  매 프레임 끝에서 (song_id, mode, diff, verified) 스냅샷을 비교하여
-  스냅샷이 바뀌었을 때만 OCR 재허용. 각 값의 갱신 주기 차이로 인한
-  오저장 방지.
+동작 방식:
+  매 프레임 (OCR_INTERVAL 마다):
+  1. FREESTYLE 로고 OCR → 선곡화면 감지
+  2. 재킷 이미지 매칭 → song_id
+  3. 밝기 비교 → mode, diff  (OCR 없음)
+  4. (song_id, mode, diff) 3종이 같은 프레임에서 N회 연속 동일 + 밝기 신뢰 → 안정  
+  5. 안정 상태 확정 시 verified=True 콜백, 이후 쿨다운마다 Rate OCR 반복 수집
 """
 
 import time
 import threading
 import asyncio
 import re
+import difflib
 from collections import deque
 import numpy as np
 from typing import Optional, Callable
@@ -77,9 +71,8 @@ JACKET_SIMILARITY_LOG = bool(JACKET_SETTINGS["log_similarity"])
 JACKET_CHANGE_THRESHOLD = float(JACKET_SETTINGS["jacket_change_threshold"])
 JACKET_FORCE_RECHECK_SEC = float(JACKET_SETTINGS["jacket_force_recheck_sec"])
 
-# 모드/난이도 감지 관련
+# 모드/난이도 안정성 판정 기록 수
 _MODE_DIFF_SETTINGS = SETTINGS.get("mode_diff_detector", {})
-MODE_DIFF_INTERVAL = float(_MODE_DIFF_SETTINGS.get("interval_sec", 0.15))
 MODE_DIFF_HISTORY  = int(_MODE_DIFF_SETTINGS.get("history_size", 3))
 
 # Rate OCR 관련 (1920x1080 기준 픽셀 좌표)
@@ -120,22 +113,23 @@ class ScreenCapture:
         self._freestyle_history = deque(maxlen=max(1, FREESTYLE_HISTORY_SIZE))
 
         # 재킷 매칭 상태
+        self._current_song_id: Optional[int] = None
         self._last_jacket_ts = 0.0
         self._last_jacket_thumb: Optional[np.ndarray] = None
         self._last_jacket_match_ts = 0.0
-        self._last_jacket_matched = False
 
-        # 모드/난이도 감지 상태
+        # 모드/난이도 + song_id 를 같은 프레임에서 읽어 N프레임 연속 동일하면 "안정" 판정
+        # 안정 상태가 되어야만 Rate OCR 실행 + 콜백에 verified=True 전달
+        self._state_history: deque = deque(maxlen=max(1, MODE_DIFF_HISTORY))
+        self._confirmed_state: tuple = (None, None, None)   # 마지막으로 확정된 (song_id, mode, diff)
         self._last_mode: Optional[str] = None
         self._last_diff: Optional[str] = None
-        self._mode_history: deque[Optional[str]] = deque(maxlen=MODE_DIFF_HISTORY)
-        self._diff_history: deque[Optional[str]] = deque(maxlen=MODE_DIFF_HISTORY)
-        self._diff_verified = False
 
-        # 스냅샷 기반 Rate OCR 제어
-        # (song_id, mode, diff, verified) — 모두 같은 프레임에서 읽은 값
-        self._last_snapshot: tuple = (None, None, None, False)
-        self._last_rate_ocr_ts: float = 0.0
+        # Rate OCR - 세션 내 이미 기록한 (song_id, mode, diff) 집합
+        # 선곡화면 이탈(=게임플레이) 시 초기화되어 복귀 후 다시 읽음
+        # Rate는 플레이해서 기록을 갱신하지 않으면 변하지 않으므로 세션당 1회면 충분
+        self._recorded_states: set = set()
+        self._last_rate_ocr_ts: float = 0.0  # OCR 실패 시 재시도 쿨다운
 
         # Windows OCR 엔진
         self.ocr_engine = None
@@ -224,41 +218,33 @@ class ScreenCapture:
                 self.on_screen_changed(is_song_select)
 
         if not is_song_select:
-            self._last_jacket_matched = False
-            self._mode_history.clear()
-            self._diff_history.clear()
+            # 화면 이탈(게임 플레이 등) 시 상태 전부 초기화
+            # → 복귀 후 Rate OCR이 새로 실행되어 갱신된 기록을 읽어올 수 있음
+            self._state_history.clear()
+            self._confirmed_state = (None, None, None)
+            self._current_song_id = None
+            self._recorded_states.clear()
             return
 
         if is_leaving:
             self.log("선곡 판정 하락 중 - 인식 skip")
             return
 
-        # 2. 전체 화면 스냅샷
-        full_region = {
+        # 2. 전체 화면을 한 번만 캡처 (이 프레임의 모든 정보는 여기서 읽음)
+        full_frame = np.array(sct.grab({
             "top":    rect.top,
             "left":   rect.left,
             "width":  rect.width,
             "height": rect.height,
-        }
-        full_frame = np.array(sct.grab(full_region))  # BGRA
-
+        }))  # BGRA
         now = time.time()
 
-        # 3. 재킷 ROI
+        # 3. 재킷 매칭 → song_id
         h, w = full_frame.shape[:2]
-        jx1 = int(w * JACKET_X_START)
-        jy1 = int(h * JACKET_Y_START)
-        jx2 = int(w * JACKET_X_END)
-        jy2 = int(h * JACKET_Y_END)
-        jacket_img = full_frame[jy1:jy2, jx1:jx2]
-
-        # 4. 재킷 매칭
-        jacket_matched = (
-            self._last_jacket_matched
-            and self.image_db is not None
-            and self.image_db.is_ready
-            and self.image_db.song_count > 0
-        )
+        jacket_img = full_frame[
+            int(h * JACKET_Y_START):int(h * JACKET_Y_END),
+            int(w * JACKET_X_START):int(w * JACKET_X_END),
+        ]
         if (
             self.image_db is not None
             and self.image_db.is_ready
@@ -268,93 +254,84 @@ class ScreenCapture:
             self._last_jacket_ts = now
             thumb = cv2.resize(
                 cv2.cvtColor(jacket_img, cv2.COLOR_BGRA2GRAY),
-                (32, 32),
-                interpolation=cv2.INTER_AREA,
+                (32, 32), interpolation=cv2.INTER_AREA,
             )
             image_changed = True
             if self._last_jacket_thumb is not None:
-                diff = np.abs(thumb.astype(np.float32) - self._last_jacket_thumb.astype(np.float32))
-                image_changed = float(np.mean(diff)) >= JACKET_CHANGE_THRESHOLD
+                d = np.abs(thumb.astype(np.float32) - self._last_jacket_thumb.astype(np.float32))
+                image_changed = float(np.mean(d)) >= JACKET_CHANGE_THRESHOLD
             force_recheck = (now - self._last_jacket_match_ts) >= JACKET_FORCE_RECHECK_SEC
 
             if image_changed or force_recheck:
                 self._last_jacket_thumb = thumb
                 self._last_jacket_match_ts = now
+
+                # 이미지가 실제로 바뀐 경우 즉시 무효화
+                # → 새 곡이 확정되기 전까지 _state_history가 None으로 채워져
+                #   Rate OCR이 이전 곡 ID로 실행되지 않음
+                if image_changed:
+                    self._current_song_id = None
+
                 result = self.image_db.search(jacket_img)
                 if result:
-                    song_id, score = result
+                    sid, score = result
                     if JACKET_SIMILARITY_LOG:
-                        self.log(f"재킷 매칭: '{song_id}' (유사도 {score:.4f})")
-                    song_key = f"jacket::{song_id}"
-                    if song_key != self._last_song_key:
-                        self._last_song_key = song_key
-                        if str(song_id).isdigit():
+                        self.log(f"재킷 매칭: '{sid}' (유사도 {score:.4f})")
+                    if str(sid).isdigit():
+                        new_id = int(sid)
+                        if new_id != self._current_song_id:
+                            self._current_song_id = new_id
                             if self.on_song_changed:
-                                self.on_song_changed(int(song_id))
-                            jacket_matched = True
-                            self._last_jacket_matched = True
-                        else:
-                            jacket_matched = False
-                            self._last_jacket_matched = False
+                                self.on_song_changed(new_id)
                     else:
-                        jacket_matched = True
-                        self._last_jacket_matched = True
+                        self._current_song_id = None
                 else:
-                    jacket_matched = False
-                    self._last_jacket_matched = False
+                    self._current_song_id = None
 
-        # 5. 버튼 모드 / 난이도 감지
-        if jacket_matched:
-            self._update_mode_diff(full_frame)
+        # 4. 모드/난이도 감지 (밝기 기반, OCR 없음)
+        mode, diff, is_confident = detect_mode_and_difficulty(full_frame)
 
-        # 6. OCR fallback
-        if not jacket_matched:
-            await self._ocr_fallback(sct, rect)
+        # 5. 모드/난이도가 바뀌었으면 콜백 (아직 미검증 상태)
+        if mode != self._last_mode or diff != self._last_diff:
+            self._last_mode, self._last_diff = mode, diff
+            self.log(f"모드/난이도 변경: {mode}/{diff}")
+            if self.on_mode_diff_changed and mode and diff:
+                self.on_mode_diff_changed(mode, diff, False)
 
-        # 7. 스냅샷 비교 → Rate OCR
-        # jacket_matched 여부와 무관하게 항상 호출하여 스냅샷 불일치 시 즉시 리셋
-        await self._tick_snapshot(full_frame, now)
+        # 6. 안정성 판정: 같은 프레임에서 읽은 (song_id, mode, diff)가 N프레임 연속 동일 + is_confident
+        song_id = self._current_song_id
+        current = (song_id, mode, diff)
+        valid = all(current) and is_confident
+        self._state_history.append(current if valid else None)
 
-    # ------------------------------------------------------------------
-    # 스냅샷 기반 Rate OCR 제어
-    # ------------------------------------------------------------------
+        history = list(self._state_history)
+        is_stable = (
+            len(history) == self._state_history.maxlen
+            and len(set(history)) == 1
+            and history[0] is not None
+        )
 
-    async def _tick_snapshot(self, full_frame: np.ndarray, now: float):
-        """
-        매 프레임 끝에서 (song_id, mode, diff, verified) 스냅샷을 비교.
-        스냅샷이 바뀌면 Rate OCR 타이머를 리셋하여 즉시 재시도 허용.
-        스냅샷이 같고 RATE_OCR_INTERVAL 이 지났으면 Rate OCR 수행.
-        """
-        # 현재 song_id 추출
-        song_id: Optional[int] = None
-        if self._last_song_key.startswith("jacket::"):
-            try:
-                song_id = int(self._last_song_key.split("::")[1])
-            except (IndexError, ValueError):
-                pass
-
-        snapshot = (song_id, self._last_mode, self._last_diff, self._diff_verified)
-
-        # 스냅샷이 바뀌었으면 OCR 타이머 리셋
-        if snapshot != self._last_snapshot:
-            self._last_snapshot = snapshot
-            self._last_rate_ocr_ts = 0.0
-            self.log(
-                f"스냅샷 변경: song={song_id}, mode={self._last_mode}, "
-                f"diff={self._last_diff}, verified={self._diff_verified}"
-            )
-
-        # 진입 조건: 네 값 모두 유효 + 검증 완료
-        s_song_id, s_mode, s_diff, s_verified = snapshot
-        if not all([s_song_id, s_mode, s_diff]) or not s_verified:
+        if not is_stable:
             return
 
-        # 같은 스냅샷 내 재OCR 간격 제어
-        if (now - self._last_rate_ocr_ts) < RATE_OCR_INTERVAL:
-            return
+        # 7. 새 안정 상태 확정 시 verified 콜백
+        if current != self._confirmed_state:
+            self._confirmed_state = current
+            self._last_rate_ocr_ts = 0.0  # 새 상태 확정 시 즉시 시도 허용
+            self.log(f"상태 확정: song={song_id}, {mode}/{diff}")
+            if self.on_mode_diff_changed and mode and diff:
+                self.on_mode_diff_changed(mode, diff, True)
 
-        self._last_rate_ocr_ts = now
-        await self._do_record_rate(full_frame, s_song_id, s_mode, s_diff)
+        # 8. Rate OCR — 같은 (song_id, mode, diff)는 세션당 한 번만 기록
+        #    근거: Rate(최고기록)는 플레이해서 갱신하지 않으면 변하지 않음
+        #    실패 시에는 _recorded_states에 추가하지 않아 재시도 허용
+        #    (단, 너무 잦은 재시도를 막기 위해 RATE_OCR_INTERVAL 쿨다운 유지)
+        if current not in self._recorded_states:
+            if now - self._last_rate_ocr_ts >= RATE_OCR_INTERVAL:
+                self._last_rate_ocr_ts = now
+                success = await self._do_record_rate(full_frame, song_id, mode, diff)
+                if success:
+                    self._recorded_states.add(current)
 
     # ------------------------------------------------------------------
     # Rate OCR + RecordDB 저장
@@ -366,10 +343,10 @@ class ScreenCapture:
         song_id: int,
         mode: str,
         diff: str,
-    ):
+    ) -> bool:
         """
         Rate 영역 OCR 수행 후 RecordDB에 저장.
-        진입 조건 판단은 _tick_snapshot에서 완료된 상태.
+        반환: True = 성공 (recorded_states에 추가 가능), False = 실패 (재시도 예정)
         """
         # Rate 영역 크롭 (해상도 대응)
         h, w = full_frame.shape[:2]
@@ -390,94 +367,20 @@ class ScreenCapture:
                 rate = self._parse_rate(text)
             if rate is None:
                 self.log(f"Rate OCR 파싱 실패: '{text}' ({song_id} {mode}/{diff})")
-                return
+                return False
 
         self.log(f"Rate OCR: {song_id} {mode}/{diff} = {rate:.2f}% (raw='{text}')")
 
         if rate == 0.0:
             self.log("Rate 0.00% - 미플레이로 간주, 저장 skip")
-            return
+            return True  # 미플레이도 '읽기 완료'로 처리 (재시도 불필요)
 
         if self.record_db is not None and self.record_db.is_ready:
             if self.record_db.upsert(song_id, mode, diff, rate):
                 if self.on_record_updated:
                     self.on_record_updated()
 
-    @staticmethod
-    def _parse_rate(text: str) -> Optional[float]:
-        """OCR 결과에서 Rate(%) 수치 추출."""
-        text = text.strip()
-        m = re.search(r"(\d{1,3})\s*[.,]\s*(\d{2})\s*%?", text)
-        if m:
-            val = float(f"{m.group(1)}.{m.group(2)}")
-            if 0.0 <= val <= 100.0:
-                return val
-        m = re.search(r"\b(\d{4,5})\b", text)
-        if m:
-            raw = m.group(1)
-            val = float(f"{raw[:2]}.{raw[2:]}") if len(raw) == 4 else float(f"{raw[:3]}.{raw[3:]}")
-            if 0.0 <= val <= 100.0:
-                return val
-        return None
-
-    # ------------------------------------------------------------------
-    # 버튼 모드 / 난이도 감지
-    # ------------------------------------------------------------------
-
-    def _update_mode_diff(self, full_frame: np.ndarray) -> tuple[Optional[str], Optional[str]]:
-        raw_mode, raw_diff, raw_confident = detect_mode_and_difficulty(full_frame)
-
-        self._mode_history.append(raw_mode)
-        self._diff_history.append(raw_diff)
-
-        if (
-            len(self._mode_history) < MODE_DIFF_HISTORY
-            or len(self._diff_history) < MODE_DIFF_HISTORY
-        ):
-            return raw_mode, raw_diff
-
-        stable_mode = self._majority(self._mode_history)
-        stable_diff = self._majority(self._diff_history)
-
-        if stable_mode != self._last_mode or stable_diff != self._last_diff:
-            self.log(
-                f"모드/난이도 변경 감지: old=({self._last_mode},{self._last_diff}) "
-                f"new=({stable_mode},{stable_diff})"
-            )
-            self._last_mode = stable_mode
-            self._last_diff = stable_diff
-
-            # 난이도가 바뀌면 검증 상태 초기화
-            self._diff_verified = False
-
-            if self.on_mode_diff_changed and stable_mode and stable_diff:
-                self.on_mode_diff_changed(stable_mode, stable_diff, False)
-
-        # 밝기 마진이 충분하면 검증 완료 (OCR 없이 신뢰 가능)
-        if stable_diff and not self._diff_verified and raw_confident:
-            self.log(f"난이도 검증 완료(밝기): {stable_diff}")
-            self._diff_verified = True
-            if self.on_mode_diff_changed:
-                self.on_mode_diff_changed(stable_mode, stable_diff, True)
-
-        return raw_mode, raw_diff
-
-    @staticmethod
-    def _majority(history: deque) -> Optional[str]:
-        counts: dict[str, int] = {}
-        for v in history:
-            if v is not None:
-                counts[v] = counts.get(v, 0) + 1
-        if not counts:
-            return None
-        return max(counts, key=lambda k: counts[k])
-
-    # ------------------------------------------------------------------
-    # OCR fallback (현재 비활성)
-    # ------------------------------------------------------------------
-
-    async def _ocr_fallback(self, sct, rect: WindowRect):
-        return
+        return True
 
     # ------------------------------------------------------------------
     # ROI 헬퍼
