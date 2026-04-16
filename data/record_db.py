@@ -111,7 +111,7 @@ class RecordDB:
                     INSERT INTO records (steam_id, song_id, button_mode, difficulty, rate)
                     VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT(steam_id, song_id, button_mode, difficulty) DO UPDATE SET
-                        rate       = MAX(rate, excluded.rate),
+                        rate       = excluded.rate,
                         updated_at = CAST(strftime('%s', 'now') AS INTEGER)
                 """, (steam_id, sid, button_mode, difficulty, float(rate)))
                 conn.commit()
