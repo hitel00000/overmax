@@ -39,23 +39,29 @@ class DiffCard(QFrame):
 
         if self._level is None:
             # 비활성 상태
-            painter.setBrush(QBrush(QColor(60, 60, 60, 120)))
+            painter.setBrush(QBrush(QColor(66, 78, 103, 182)))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(0, 0, self.width(), self.height(), 6, 6)
             return
 
         # 배경
         bg = QColor(self.color)
-        bg.setAlpha(200)
+        bg.setAlpha(218)
+        if self._selected:
+            bg = bg.lighter(110)
         painter.setBrush(QBrush(bg))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(0, 0, self.width(), self.height(), 6, 6)
 
-        # 선택 테두리
+        # 선택 상태: 보더 + 얇은 상태 레이어
         if self._selected:
-            painter.setPen(QPen(QColor(255, 255, 255, 230), 2.5))
+            painter.setPen(QPen(QColor(227, 238, 255, 232), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(1, 1, self.width() - 2, self.height() - 2, 5, 5)
+            painter.drawRoundedRect(1, 1, self.width() - 2, self.height() - 2, 6, 6)
+
+            painter.setBrush(QBrush(QColor(255, 255, 255, 24)))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(0, 0, self.width(), self.height(), 6, 6)
 
         # 난이도 라벨 (NM/HD/MX/SC)
         painter.setPen(QPen(QColor(255, 255, 255, 200)))
@@ -102,9 +108,8 @@ class ButtonModePanel(QFrame):
 
         self.setStyleSheet("""
             ButtonModePanel {
-                background: rgba(30, 30, 55, 200);
-                border: 1px solid rgba(150, 150, 255, 120);
-                border-radius: 8px;
+                background: rgba(34, 44, 66, 216);
+                border-radius: 10px;
             }
         """)
 

@@ -67,21 +67,31 @@ if PYQT_AVAILABLE:
         def _setup_ui(self):
             main_layout = QVBoxLayout(self)
             main_layout.setContentsMargins(8, 8, 8, 8)
-            main_layout.setSpacing(6)
+            main_layout.setSpacing(0)
 
-            main_layout.addWidget(self._build_header())
-            main_layout.addWidget(self._build_mode_indicator())
+            panel = QFrame()
+            panel.setStyleSheet(
+                """
+                QFrame {
+                    background: rgba(20, 27, 42, 236);
+                    border-radius: 14px;
+                }
+                """
+            )
+
+            panel_layout = QVBoxLayout(panel)
+            panel_layout.setContentsMargins(8, 8, 8, 8)
+            panel_layout.setSpacing(6)
+
+            panel_layout.addWidget(self._build_header())
+            panel_layout.addWidget(self._build_mode_indicator())
 
             self._pattern_panel = ButtonModePanel()
-            main_layout.addWidget(self._pattern_panel)
+            panel_layout.addWidget(self._pattern_panel)
 
-            line = QFrame()
-            line.setFrameShape(QFrame.Shape.HLine)
-            line.setStyleSheet("color: rgba(255,255,255,15);")
-            main_layout.addWidget(line)
-
-            main_layout.addLayout(self._build_recommend_header())
-            main_layout.addWidget(self._build_recommend_scroll())
+            panel_layout.addLayout(self._build_recommend_header())
+            panel_layout.addWidget(self._build_recommend_scroll())
+            main_layout.addWidget(panel)
             self.adjustSize()
 
         def _build_header(self) -> QFrame:
@@ -89,16 +99,16 @@ if PYQT_AVAILABLE:
             header.setStyleSheet(
                 """
                 QFrame {
-                    background: rgba(15, 15, 25, 180);
-                    border-radius: 8px;
+                    background: rgba(36, 46, 70, 230);
+                    border-radius: 12px;
                 }
                 """
             )
             header_layout = QHBoxLayout(header)
-            header_layout.setContentsMargins(10, 6, 10, 6)
+            header_layout.setContentsMargins(12, 8, 12, 8)
 
             badge = QLabel("Overmax")
-            badge.setStyleSheet("color: #7B68EE; font-size: 10px; font-weight: bold;")
+            badge.setStyleSheet("color: #B4CBFF; font-size: 10px; font-weight: 700;")
             header_layout.addWidget(badge)
 
             self._status_lamp = QLabel()
@@ -108,12 +118,12 @@ if PYQT_AVAILABLE:
             header_layout.addWidget(self._status_lamp)
 
             self._song_label = QLabel("곡을 선택하세요")
-            self._song_label.setStyleSheet("color: #FFFFFF; font-size: 13px; font-weight: bold;")
+            self._song_label.setStyleSheet("color: #F4F7FF; font-size: 13px; font-weight: 700;")
             self._song_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             header_layout.addWidget(self._song_label, 1)
 
             hint = QLabel("드래그")
-            hint.setStyleSheet("color: #555555; font-size: 9px;")
+            hint.setStyleSheet("color: #8891A7; font-size: 9px;")
             header_layout.addWidget(hint)
             return header
 
@@ -121,18 +131,25 @@ if PYQT_AVAILABLE:
             self._mode_indicator = QLabel("— / —")
             self._mode_indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._mode_indicator.setStyleSheet(
-                "color: rgba(200,200,255,160); font-size: 10px; font-weight: bold;"
+                """
+                color: #DDE7FF;
+                background: rgba(63, 80, 117, 214);
+                border-radius: 10px;
+                font-size: 10px;
+                font-weight: 700;
+                padding: 5px 8px;
+                """
             )
             return self._mode_indicator
 
         def _build_recommend_header(self) -> QHBoxLayout:
             rec_header = QHBoxLayout()
             rec_title = QLabel("유사 난이도 추천")
-            rec_title.setStyleSheet("color: #7B68EE; font-size: 10px; font-weight: bold;")
+            rec_title.setStyleSheet("color: #B4CBFF; font-size: 10px; font-weight: 700;")
             rec_header.addWidget(rec_title)
             rec_header.addStretch()
             self._rec_count_label = QLabel("")
-            self._rec_count_label.setStyleSheet("color: #555555; font-size: 8px;")
+            self._rec_count_label.setStyleSheet("color: #A5B1CD; font-size: 8px;")
             rec_header.addWidget(self._rec_count_label)
             return rec_header
 
@@ -151,7 +168,7 @@ if PYQT_AVAILABLE:
                     width: 4px;
                 }
                 QScrollBar::handle:vertical {
-                    background: rgba(123, 104, 238, 80);
+                    background: rgba(187, 209, 255, 120);
                     border-radius: 2px;
                 }
                 """
@@ -188,7 +205,7 @@ if PYQT_AVAILABLE:
                     message = "패턴을 감지하는 중..." if no_selection else "추천 결과 없음"
                     empty = QLabel(message)
                     empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                    empty.setStyleSheet("color: #444444; font-size: 10px; padding: 20px;")
+                    empty.setStyleSheet("color: #9DA8C4; font-size: 10px; padding: 20px;")
                     self._rec_layout.addWidget(empty)
                     self._rec_layout.addStretch()
                     self._rec_count_label.setText("")
@@ -283,9 +300,13 @@ if PYQT_AVAILABLE:
         def paintEvent(self, event):
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setBrush(QBrush(QColor(0, 0, 0, 0)))
+            painter.setBrush(QBrush(QColor(0, 0, 0, 40)))
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRect(self.rect())
+            painter.drawRoundedRect(self.rect().adjusted(4, 5, -1, -1), 14, 14)
+
+            painter.setBrush(QBrush(QColor(0, 0, 0, 68)))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(self.rect().adjusted(2, 3, -2, -1), 14, 14)
 
 else:
 
