@@ -31,9 +31,12 @@ from settings import SETTINGS
 from steam_session import get_most_recent_steam_id
 from game_state import GameSessionState
 
-LOCAL_SONGS_JSON = runtime_patch.get_data_dir() / "cache" / "songs.json"
-WINDOW_TITLE = str(SETTINGS["window_tracker"]["window_title"])
-TOGGLE_HOTKEY = str(SETTINGS["overlay"]["toggle_hotkey"])
+from constants import (
+    WINDOW_TITLE,
+    TOGGLE_HOTKEY,
+    CACHE_PATH as LOCAL_SONGS_JSON,
+    RECORD_DB_PATH,
+)
 _SINGLE_INSTANCE_MUTEX_NAME = "OvermaxSingleInstanceMutex"
 _ERROR_ALREADY_EXISTS = 183
 
@@ -99,7 +102,8 @@ def main():
             image_db = None
 
         # 2-1. RecordDB 초기화
-        record_db = RecordDB(db_path="cache/record.db")
+        from constants import RECORD_DB_PATH
+        record_db = RecordDB(db_path=RECORD_DB_PATH)
         if record_db.initialize():
             initial_steam_id = get_most_recent_steam_id()
             changed, before_sid, after_sid = record_db.set_steam_id(initial_steam_id)

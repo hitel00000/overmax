@@ -1,0 +1,109 @@
+"""
+중앙 상수 관리 모듈.
+모든 설정 기반 상수와 하드코딩된 물리적 좌표/비율을 여기서 관리한다.
+"""
+
+from pathlib import Path
+from settings import SETTINGS
+import runtime_patch
+
+# ------------------------------------------------------------------
+# 윈도우 추적 및 기본 설정
+# ------------------------------------------------------------------
+REF_WIDTH = 1920
+REF_HEIGHT = 1080
+WINDOW_TRACKER_SETTINGS = SETTINGS["window_tracker"]
+WINDOW_TITLE = str(WINDOW_TRACKER_SETTINGS["window_title"])
+POLL_INTERVAL = float(WINDOW_TRACKER_SETTINGS["poll_interval_sec"])
+
+# ------------------------------------------------------------------
+# V-Archive 관련
+# ------------------------------------------------------------------
+VARCHIVE_SETTINGS = SETTINGS["varchive"]
+SONGS_API_URL = str(VARCHIVE_SETTINGS["songs_api_url"])
+CACHE_PATH = runtime_patch.get_data_dir() / str(VARCHIVE_SETTINGS["cache_path"])
+CACHE_TTL = int(VARCHIVE_SETTINGS["cache_ttl_sec"])
+DOWNLOAD_TIMEOUT = float(VARCHIVE_SETTINGS["download_timeout_sec"])
+FUZZY_THRESHOLD = int(VARCHIVE_SETTINGS["fuzzy_threshold"])
+
+BUTTON_MODES = list(VARCHIVE_SETTINGS["button_modes"])
+DIFFICULTIES = list(VARCHIVE_SETTINGS["difficulties"])
+DIFF_COLORS = dict(VARCHIVE_SETTINGS["diff_colors"])
+
+# ------------------------------------------------------------------
+# 화면 캡처 및 인식 관련
+# ------------------------------------------------------------------
+SCREEN_CAPTURE_SETTINGS = SETTINGS["screen_capture"]
+JACKET_SETTINGS = SETTINGS["jacket_matcher"]
+
+OCR_INTERVAL = float(SCREEN_CAPTURE_SETTINGS["ocr_interval_sec"])
+IDLE_SLEEP_INTERVAL = float(SCREEN_CAPTURE_SETTINGS["idle_sleep_sec"])
+
+# 로고(FREESTYLE) ROI (비율)
+LOGO_X_START = float(SCREEN_CAPTURE_SETTINGS["logo_x_start"])
+LOGO_X_END = float(SCREEN_CAPTURE_SETTINGS["logo_x_end"])
+LOGO_Y_START = float(SCREEN_CAPTURE_SETTINGS["logo_y_start"])
+LOGO_Y_END = float(SCREEN_CAPTURE_SETTINGS["logo_y_end"])
+
+LOGO_OCR_KEYWORD = str(SCREEN_CAPTURE_SETTINGS["logo_ocr_keyword"]).upper()
+LOGO_OCR_COOLDOWN_SEC = float(SCREEN_CAPTURE_SETTINGS["logo_ocr_cooldown_sec"])
+
+# 로고 인식 히스토리/판정
+FREESTYLE_HISTORY_SIZE = int(SCREEN_CAPTURE_SETTINGS["freestyle_history_size"])
+FREESTYLE_ON_RATIO = float(SCREEN_CAPTURE_SETTINGS["freestyle_on_ratio"])
+FREESTYLE_ON_MIN_SAMPLES = int(SCREEN_CAPTURE_SETTINGS["freestyle_on_min_samples"])
+FREESTYLE_OFF_RATIO = float(SCREEN_CAPTURE_SETTINGS["freestyle_off_ratio"])
+FREESTYLE_OFF_MIN_SAMPLES = int(SCREEN_CAPTURE_SETTINGS["freestyle_off_min_samples"])
+
+# 재킷 ROI (비율)
+JACKET_X_START = float(JACKET_SETTINGS["jacket_x_start"])
+JACKET_X_END = float(JACKET_SETTINGS["jacket_x_end"])
+JACKET_Y_START = float(JACKET_SETTINGS["jacket_y_start"])
+JACKET_Y_END = float(JACKET_SETTINGS["jacket_y_end"])
+
+# 재킷 매칭
+JACKET_MATCH_INTERVAL = float(JACKET_SETTINGS["match_interval_sec"])
+JACKET_SIMILARITY_LOG = bool(JACKET_SETTINGS["log_similarity"])
+JACKET_CHANGE_THRESHOLD = float(JACKET_SETTINGS["jacket_change_threshold"])
+JACKET_FORCE_RECHECK_SEC = float(JACKET_SETTINGS["jacket_force_recheck_sec"])
+
+# 상태 판정
+_MODE_DIFF_SETTINGS = SETTINGS.get("mode_diff_detector", {})
+MODE_DIFF_HISTORY = int(_MODE_DIFF_SETTINGS.get("history_size", 3))
+
+# Rate OCR (1920x1080 기준 픽셀 좌표)
+RATE_X1, RATE_Y1 = 176, 583
+RATE_X2, RATE_Y2 = 270, 605
+RATE_OCR_INTERVAL = 1.5
+
+# ------------------------------------------------------------------
+# UI 내비게이션 및 상세 인식 영역 (1920x1080 기준 고정 비율)
+# ------------------------------------------------------------------
+
+# 버튼 모드 감지 영역
+BTN_MODE_ROI = (80 / REF_WIDTH, 130 / REF_HEIGHT, 85 / REF_WIDTH, 135 / REF_HEIGHT)
+
+# 난이도별 감지 오프셋 (기준 해상도 대비)
+DIFF_DETECT_Y = 487 / REF_HEIGHT
+DIFF_DETECT_X_BASE = 97 / REF_WIDTH
+DIFF_DETECT_OFFSETS = {
+    "NM": 0 / REF_WIDTH,
+    "HD": 120 / REF_WIDTH,
+    "MX": 240 / REF_WIDTH,
+    "SC": 360 / REF_WIDTH,
+}
+
+# ------------------------------------------------------------------
+# 오버레이 제어
+# ------------------------------------------------------------------
+OVERLAY_SETTINGS = SETTINGS["overlay"]
+TOGGLE_HOTKEY = str(OVERLAY_SETTINGS["toggle_hotkey"])
+TRAY_TOOLTIP = str(OVERLAY_SETTINGS["tray_tooltip"])
+OVERLAY_POSITION_FILE = str(OVERLAY_SETTINGS["position_file"])
+RECORD_DB_PATH = "cache/record.db"
+
+# ------------------------------------------------------------------
+# 추천 시스템
+# ------------------------------------------------------------------
+SC_GROUP = {"SC"}
+NHM_GROUP = {"NM", "HD", "MX"}

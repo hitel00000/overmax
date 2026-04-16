@@ -2,19 +2,13 @@ from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt, QRect
 from PyQt6.QtGui import QColor, QPainter, QFont, QPen
 
-from settings import SETTINGS
-
-SCREEN_CAPTURE_SETTINGS = SETTINGS["screen_capture"]
-JACKET_SETTINGS = SETTINGS["jacket_matcher"]
-
-LOGO_X_START = float(SCREEN_CAPTURE_SETTINGS["logo_x_start"])
-LOGO_X_END = float(SCREEN_CAPTURE_SETTINGS["logo_x_end"])
-LOGO_Y_START = float(SCREEN_CAPTURE_SETTINGS["logo_y_start"])
-LOGO_Y_END = float(SCREEN_CAPTURE_SETTINGS["logo_y_end"])
-JACKET_X_START = float(JACKET_SETTINGS["jacket_x_start"])
-JACKET_X_END   = float(JACKET_SETTINGS["jacket_x_end"])
-JACKET_Y_START = float(JACKET_SETTINGS["jacket_y_start"])
-JACKET_Y_END   = float(JACKET_SETTINGS["jacket_y_end"])
+from constants import (
+    LOGO_X_START, LOGO_X_END, LOGO_Y_START, LOGO_Y_END,
+    JACKET_X_START, JACKET_X_END, JACKET_Y_START, JACKET_Y_END,
+    BTN_MODE_ROI,
+    DIFF_DETECT_X_BASE, DIFF_DETECT_Y, DIFF_DETECT_OFFSETS,
+    REF_WIDTH, REF_HEIGHT
+)
 
 class RoiOverlayWindow(QWidget):
     """게임 화면 위에 OCR/검출 ROI를 선으로 표시하는 디버그 오버레이"""
@@ -90,23 +84,21 @@ class RoiOverlayWindow(QWidget):
             "JACKET",
         )
 
-        # 버튼 모드 감지 영역 (80~84, 130~134)
+        # 버튼 모드 감지 영역
         self._draw_box(
             painter,
-            self._ratio_rect(80/1920, 130/1080, 85/1920, 135/1080),
+            self._ratio_rect(*BTN_MODE_ROI),
             QColor("#00FF88"),
             "BTN MODE",
         )
 
-        # 난이도 감지 위치 (NM 기준 위치1/위치2)
-        for i, (diff, x_off) in enumerate({"NM": 0, "HD": 120, "MX": 240, "SC": 360}.items()):
-            dx = x_off / 1920
-            # 위치1
-            rx1 = (97 / 1920) + dx
-            ry1 = 487 / 1080
+        # 난이도 감지 위치
+        for diff, dx in DIFF_DETECT_OFFSETS.items():
+            rx1 = DIFF_DETECT_X_BASE + dx
+            ry1 = DIFF_DETECT_Y
             self._draw_box(
                 painter,
-                self._ratio_rect(rx1 - 1/1920, ry1 - 1/1080, rx1 + 3/1920, ry1 + 3/1080),
+                self._ratio_rect(rx1 - 1/REF_WIDTH, ry1 - 1/REF_HEIGHT, rx1 + 3/REF_WIDTH, ry1 + 3/REF_HEIGHT),
                 QColor("#FFAA00"),
                 diff,
             )

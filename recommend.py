@@ -22,10 +22,7 @@ from typing import Optional
 
 from varchive import VArchiveDB, BUTTON_MODES, DIFFICULTIES, DIFF_COLORS
 from record_db import RecordDB
-
-# 공식 난이도에서 SC와 같은 그룹으로 묶이는 난이도
-_SC_GROUP  = {"SC"}
-_NHM_GROUP = {"NM", "HD", "MX"}
+from constants import SC_GROUP, NHM_GROUP
 
 
 def _parse_floor_value(floor_name: Optional[str]) -> Optional[float]:
@@ -40,7 +37,7 @@ def _parse_floor_value(floor_name: Optional[str]) -> Optional[float]:
 
 def _diff_group(difficulty: str) -> str:
     """공식 난이도 체계에서 같은 그룹인지 판별하기 위한 그룹 키."""
-    return "SC" if difficulty in _SC_GROUP else "NHM"
+    return "SC" if difficulty in SC_GROUP else "NHM"
 
 
 @dataclass

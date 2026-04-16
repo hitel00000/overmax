@@ -22,10 +22,11 @@ from ui.navigation import RoiOverlayWindow
 from overlay_window import OverlaySignals, OverlayWindow
 
 
-OVERLAY_SETTINGS = SETTINGS["overlay"]
-TOGGLE_HOTKEY = str(OVERLAY_SETTINGS["toggle_hotkey"])
-TRAY_TOOLTIP = str(OVERLAY_SETTINGS["tray_tooltip"])
-OVERLAY_POSITION_FILE = str(OVERLAY_SETTINGS["position_file"])
+from constants import (
+    TOGGLE_HOTKEY,
+    TRAY_TOOLTIP,
+    OVERLAY_POSITION_FILE,
+)
 
 
 class OverlayController:

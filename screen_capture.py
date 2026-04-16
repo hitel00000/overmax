@@ -18,7 +18,35 @@ import numpy as np
 from typing import Optional, Callable
 import mss
 import cv2
-from settings import SETTINGS
+from constants import (
+    OCR_INTERVAL,
+    IDLE_SLEEP_INTERVAL,
+    LOGO_X_START,
+    LOGO_X_END,
+    LOGO_Y_START,
+    LOGO_Y_END,
+    LOGO_OCR_KEYWORD,
+    LOGO_OCR_COOLDOWN_SEC,
+    FREESTYLE_HISTORY_SIZE,
+    FREESTYLE_ON_RATIO,
+    FREESTYLE_ON_MIN_SAMPLES,
+    FREESTYLE_OFF_RATIO,
+    FREESTYLE_OFF_MIN_SAMPLES,
+    JACKET_X_START,
+    JACKET_X_END,
+    JACKET_Y_START,
+    JACKET_Y_END,
+    JACKET_MATCH_INTERVAL,
+    JACKET_SIMILARITY_LOG,
+    JACKET_CHANGE_THRESHOLD,
+    JACKET_FORCE_RECHECK_SEC,
+    MODE_DIFF_HISTORY,
+    RATE_X1,
+    RATE_Y1,
+    RATE_X2,
+    RATE_Y2,
+    RATE_OCR_INTERVAL,
+)
 
 try:
     import winrt.windows.media.ocr as ocr
@@ -44,51 +72,7 @@ from screen_capture_helpers import (
     preprocess_for_ocr,
 )
 
-# ------------------------------------------------------------------
-# 설정 상수 (비율 기반)
-# ------------------------------------------------------------------
-SCREEN_CAPTURE_SETTINGS = SETTINGS["screen_capture"]
-JACKET_SETTINGS = SETTINGS["jacket_matcher"]
-
-OCR_INTERVAL = float(SCREEN_CAPTURE_SETTINGS["ocr_interval_sec"])
-IDLE_SLEEP_INTERVAL = float(SCREEN_CAPTURE_SETTINGS["idle_sleep_sec"])
-
-# 선곡화면 로고(FREESTYLE) 감지 영역
-LOGO_X_START = float(SCREEN_CAPTURE_SETTINGS["logo_x_start"])
-LOGO_X_END   = float(SCREEN_CAPTURE_SETTINGS["logo_x_end"])
-LOGO_Y_START = float(SCREEN_CAPTURE_SETTINGS["logo_y_start"])
-LOGO_Y_END   = float(SCREEN_CAPTURE_SETTINGS["logo_y_end"])
-
-LOGO_OCR_KEYWORD = str(SCREEN_CAPTURE_SETTINGS["logo_ocr_keyword"]).upper()
-LOGO_OCR_COOLDOWN_SEC = float(SCREEN_CAPTURE_SETTINGS["logo_ocr_cooldown_sec"])
-FREESTYLE_HISTORY_SIZE = int(SCREEN_CAPTURE_SETTINGS["freestyle_history_size"])
-FREESTYLE_MAJORITY_RATIO = float(SCREEN_CAPTURE_SETTINGS["freestyle_majority_ratio"])
-FREESTYLE_MIN_SAMPLES = int(SCREEN_CAPTURE_SETTINGS["freestyle_min_samples"])
-FREESTYLE_ON_RATIO = float(SCREEN_CAPTURE_SETTINGS["freestyle_on_ratio"])
-FREESTYLE_ON_MIN_SAMPLES = int(SCREEN_CAPTURE_SETTINGS["freestyle_on_min_samples"])
-FREESTYLE_OFF_RATIO = float(SCREEN_CAPTURE_SETTINGS["freestyle_off_ratio"])
-FREESTYLE_OFF_MIN_SAMPLES = int(SCREEN_CAPTURE_SETTINGS["freestyle_off_min_samples"])
-
-# 재킷 ROI
-JACKET_X_START = float(JACKET_SETTINGS["jacket_x_start"])
-JACKET_X_END   = float(JACKET_SETTINGS["jacket_x_end"])
-JACKET_Y_START = float(JACKET_SETTINGS["jacket_y_start"])
-JACKET_Y_END   = float(JACKET_SETTINGS["jacket_y_end"])
-
-# 재킷 매칭 관련
-JACKET_MATCH_INTERVAL = float(JACKET_SETTINGS["match_interval_sec"])
-JACKET_SIMILARITY_LOG = bool(JACKET_SETTINGS["log_similarity"])
-JACKET_CHANGE_THRESHOLD = float(JACKET_SETTINGS["jacket_change_threshold"])
-JACKET_FORCE_RECHECK_SEC = float(JACKET_SETTINGS["jacket_force_recheck_sec"])
-
-# 모드/난이도 안정성 판정 기록 수
-_MODE_DIFF_SETTINGS = SETTINGS.get("mode_diff_detector", {})
-MODE_DIFF_HISTORY  = int(_MODE_DIFF_SETTINGS.get("history_size", 3))
-
-# Rate OCR 관련 (1920x1080 기준 픽셀 좌표)
-_RATE_X1, _RATE_Y1 = 176, 583
-_RATE_X2, _RATE_Y2 = 270, 605
-RATE_OCR_INTERVAL  = 1.5        # 같은 스냅샷 재OCR 최소 간격 (초)
+# (Constants moved to constants.py)
 
 
 class ScreenCapture:
@@ -336,7 +320,7 @@ class ScreenCapture:
         Rate 영역 OCR 수행 후 RecordDB에 저장.
         반환: True = 성공 (recorded_states에 추가 가능), False = 실패 (재시도 예정)
         """
-        roi_bgra = make_rate_roi(full_frame, _RATE_X1, _RATE_Y1, _RATE_X2, _RATE_Y2)
+        roi_bgra = make_rate_roi(full_frame, RATE_X1, RATE_Y1, RATE_X2, RATE_Y2)
         text = await self._ocr_windows(roi_bgra)
         rate = parse_rate_text(text)
 

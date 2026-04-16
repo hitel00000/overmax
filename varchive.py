@@ -4,12 +4,22 @@ songs.json을 로컬 캐시로 사용하거나 API에서 최신 데이터를 가
 """
 
 import json
-import os
 import re
 import time
 from pathlib import Path
 from typing import Optional
-from settings import SETTINGS
+
+from constants import (
+    SONGS_API_URL,
+    CACHE_PATH,
+    CACHE_TTL,
+    DOWNLOAD_TIMEOUT,
+    FUZZY_THRESHOLD,
+    BUTTON_MODES,
+    DIFFICULTIES,
+    DIFF_COLORS,
+)
+
 try:
     import httpx
     HTTPX_AVAILABLE = True
@@ -22,18 +32,6 @@ try:
 except ImportError:
     RAPIDFUZZ_AVAILABLE = False
     import difflib
-
-VARCHIVE_SETTINGS = SETTINGS["varchive"]
-
-SONGS_API_URL = str(VARCHIVE_SETTINGS["songs_api_url"])
-CACHE_PATH = Path(__file__).parent / str(VARCHIVE_SETTINGS["cache_path"])
-CACHE_TTL = int(VARCHIVE_SETTINGS["cache_ttl_sec"])  # 24시간
-DOWNLOAD_TIMEOUT = float(VARCHIVE_SETTINGS["download_timeout_sec"])
-FUZZY_THRESHOLD = int(VARCHIVE_SETTINGS["fuzzy_threshold"])
-
-BUTTON_MODES = list(VARCHIVE_SETTINGS["button_modes"])
-DIFFICULTIES = list(VARCHIVE_SETTINGS["difficulties"])
-DIFF_COLORS = dict(VARCHIVE_SETTINGS["diff_colors"])
 
 
 class VArchiveDB:
