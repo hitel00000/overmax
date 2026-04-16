@@ -38,14 +38,14 @@ echo [2/6] Checking dependencies...
 python -c "import PyInstaller" >nul 2>&1
 if errorlevel 1 (
     echo        Installing PyInstaller
-    pip install pyinstaller --quiet
+    python -m pip install pyinstaller --quiet
     if errorlevel 1 goto :pip_error
 )
 
 python -c "import PyQt6" >nul 2>&1
 if errorlevel 1 (
     echo        Installing requirements.txt (this may take a while)
-    pip install -r "%PROJECT_DIR%requirements.txt" --quiet
+    python -m pip install -r "%PROJECT_DIR%requirements.txt" --quiet
     if errorlevel 1 goto :pip_error
 )
 echo        Dependencies OK
@@ -75,10 +75,10 @@ echo [5/6] Running PyInstaller...
 if "%DEBUG_MODE%"=="1" (
     echo        [DEBUG MODE] Console window will be visible
     python -c "content=open('overmax.spec').read();open('overmax_debug.spec','w').write(content.replace('console=False','console=True'))"
-    pyinstaller overmax_debug.spec --noconfirm
+    python -m PyInstaller overmax_debug.spec --noconfirm
     del overmax_debug.spec
 ) else (
-    pyinstaller overmax.spec --noconfirm
+    python -m PyInstaller overmax.spec --noconfirm
 )
 
 if errorlevel 1 (
