@@ -12,6 +12,7 @@ import sys
 import threading
 import ctypes
 import os
+import signal
 from pathlib import Path
 from typing import Optional
 
@@ -196,6 +197,7 @@ def main():
 
         # 7. Qt 이벤트 루프
         try:
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
             controller.run(debug_ctrl=debug_ctrl)
         except KeyboardInterrupt:
             print("\n[Main] 종료 중...")
