@@ -20,19 +20,19 @@ except ImportError:
 
 from data.varchive import BUTTON_MODES
 from data.recommend import RecommendEntry
-from overlay.ui.pattern_view import ButtonModePanel
+from overlay.ui.pattern_view import VerticalTabPanel
 from overlay.ui.recommend_view import PatternRow
 
 
 if PYQT_AVAILABLE:
 
     class OverlaySignals(QObject):
-        song_changed = pyqtSignal(str, list)
-        screen_changed = pyqtSignal(bool)
-        position_changed = pyqtSignal(int, int, int, int)
+        song_changed      = pyqtSignal(str, list)
+        screen_changed    = pyqtSignal(bool)
+        position_changed  = pyqtSignal(int, int, int, int)
         roi_enabled_changed = pyqtSignal(bool)
         mode_diff_changed = pyqtSignal(str, str, bool)
-        recommend_ready = pyqtSignal(list, str, bool)
+        recommend_ready   = pyqtSignal(list, str, bool)
 
 
     class OverlayWindow(QWidget):
@@ -42,9 +42,8 @@ if PYQT_AVAILABLE:
             self._current_mode: Optional[str] = None
             self._current_diff: Optional[str] = None
             self._patterns_cache: dict[str, list] = {}
-            self._pattern_panel: Optional[ButtonModePanel] = None
+            self._tab_panel: Optional[VerticalTabPanel] = None
             self._song_label: Optional[QLabel] = None
-            self._mode_indicator: Optional[QLabel] = None
             self._dragging = False
             self._drag_pos = QPoint()
             self._manual_position = False
@@ -62,125 +61,125 @@ if PYQT_AVAILABLE:
             )
             self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
             self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-            self.setFixedWidth(330)
+            self.setFixedWidth(360)
 
         def _setup_ui(self):
-            main_layout = QVBoxLayout(self)
-            main_layout.setContentsMargins(8, 8, 8, 8)
-            main_layout.setSpacing(0)
+            root = QVBoxLayout(self)
+            root.setContentsMargins(0, 0, 0, 0)
+            root.setSpacing(0)
 
             panel = QFrame()
-            panel.setStyleSheet(
-                """
+            panel.setStyleSheet("""
                 QFrame {
-                    background: rgba(20, 27, 42, 236);
+                    background: rgba(18, 24, 38, 240);
                     border-radius: 14px;
                 }
-                """
-            )
+            """)
 
             panel_layout = QVBoxLayout(panel)
             panel_layout.setContentsMargins(8, 8, 8, 8)
             panel_layout.setSpacing(6)
 
             panel_layout.addWidget(self._build_header())
-            panel_layout.addWidget(self._build_mode_indicator())
+            panel_layout.addWidget(self._build_body())
 
-            self._pattern_panel = ButtonModePanel()
-            panel_layout.addWidget(self._pattern_panel)
-
-            panel_layout.addLayout(self._build_recommend_header())
-            panel_layout.addWidget(self._build_recommend_scroll())
-            main_layout.addWidget(panel)
+            root.addWidget(panel)
             self.adjustSize()
+
+        # ------------------------------------------------------------------
+        # 헤더
+        # ------------------------------------------------------------------
 
         def _build_header(self) -> QFrame:
             header = QFrame()
-            header.setStyleSheet(
-                """
+            header.setStyleSheet("""
                 QFrame {
-                    background: rgba(36, 46, 70, 230);
-                    border-radius: 12px;
+                    background: rgba(30, 40, 62, 220);
+                    border-radius: 10px;
                 }
-                """
-            )
-            header_layout = QHBoxLayout(header)
-            header_layout.setContentsMargins(12, 8, 12, 8)
-
-            badge = QLabel("Overmax")
-            badge.setStyleSheet("color: #B4CBFF; font-size: 10px; font-weight: 700;")
-            header_layout.addWidget(badge)
+            """)
+            layout = QHBoxLayout(header)
+            layout.setContentsMargins(12, 8, 12, 8)
+            layout.setSpacing(8)
 
             self._status_lamp = QLabel()
-            self._status_lamp.setFixedSize(8, 8)
-            self._status_lamp.setStyleSheet("background-color: #FF4B4B; border-radius: 4px;")
-            self._status_lamp.setToolTip("인식 검증 중...")
-            header_layout.addWidget(self._status_lamp)
+            self._status_lamp.setFixedSize(7, 7)
+            self._status_lamp.setStyleSheet(
+                "background-color: #FF4B4B; border-radius: 3px;"
+            )
+            layout.addWidget(self._status_lamp)
 
             self._song_label = QLabel("곡을 선택하세요")
-            self._song_label.setStyleSheet("color: #F4F7FF; font-size: 13px; font-weight: 700;")
-            self._song_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            header_layout.addWidget(self._song_label, 1)
+            self._song_label.setStyleSheet(
+                "color: #F0F4FF; font-size: 14px; font-weight: 700;"
+            )
+            self._song_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+            layout.addWidget(self._song_label, 1)
 
-            hint = QLabel("드래그")
-            hint.setStyleSheet("color: #8891A7; font-size: 9px;")
-            header_layout.addWidget(hint)
+            drag_hint = QLabel("⠿")
+            drag_hint.setStyleSheet("color: #3D4D6A; font-size: 13px;")
+            layout.addWidget(drag_hint)
             return header
 
-        def _build_mode_indicator(self) -> QLabel:
-            self._mode_indicator = QLabel("— / —")
-            self._mode_indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._mode_indicator.setStyleSheet(
-                """
-                color: #DDE7FF;
-                background: rgba(63, 80, 117, 214);
-                border-radius: 10px;
-                font-size: 10px;
-                font-weight: 700;
-                padding: 5px 8px;
-                """
-            )
-            return self._mode_indicator
+        # ------------------------------------------------------------------
+        # 바디: 세로 탭 | 추천 목록
+        # ------------------------------------------------------------------
 
-        def _build_recommend_header(self) -> QHBoxLayout:
-            rec_header = QHBoxLayout()
-            rec_title = QLabel("유사 난이도 추천")
-            rec_title.setStyleSheet("color: #B4CBFF; font-size: 10px; font-weight: 700;")
-            rec_header.addWidget(rec_title)
-            rec_header.addStretch()
-            self._rec_count_label = QLabel("")
-            self._rec_count_label.setStyleSheet("color: #A5B1CD; font-size: 8px;")
-            rec_header.addWidget(self._rec_count_label)
-            return rec_header
+        def _build_body(self) -> QFrame:
+            body = QFrame()
+            body.setStyleSheet("background: transparent;")
+            layout = QHBoxLayout(body)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(6)
 
-        def _build_recommend_scroll(self) -> QScrollArea:
+            # 왼쪽: 세로 탭
+            self._tab_panel = VerticalTabPanel()
+            self._tab_panel.tab_clicked.connect(self._on_tab_clicked)
+            layout.addWidget(self._tab_panel)
+
+            # 오른쪽: 추천 목록
+            layout.addWidget(self._build_recommend_panel(), 1)
+            return body
+
+        def _build_recommend_panel(self) -> QWidget:
+            wrapper = QWidget()
+            wrapper.setStyleSheet("background: transparent;")
+            layout = QVBoxLayout(wrapper)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(4)
+
             self._rec_scroll = QScrollArea()
             self._rec_scroll.setWidgetResizable(True)
-            self._rec_scroll.setFixedHeight(186)
-            self._rec_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            self._rec_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             self._rec_scroll.setFrameShape(QFrame.Shape.NoFrame)
-            self._rec_scroll.setStyleSheet(
-                """
+            self._rec_scroll.setVerticalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+            self._rec_scroll.setHorizontalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+            self._rec_scroll.setStyleSheet("""
                 QScrollArea { background: transparent; }
                 QScrollBar:vertical {
-                    background: transparent;
-                    width: 4px;
+                    background: transparent; width: 3px;
                 }
                 QScrollBar::handle:vertical {
-                    background: rgba(187, 209, 255, 120);
-                    border-radius: 2px;
+                    background: rgba(180, 203, 255, 100);
+                    border-radius: 1px;
                 }
-                """
-            )
+            """)
 
             self._rec_widget = QWidget()
             self._rec_widget.setStyleSheet("background: transparent;")
             self._rec_layout = QVBoxLayout(self._rec_widget)
-            self._rec_layout.setContentsMargins(0, 0, 4, 0)
-            self._rec_layout.setSpacing(4)
+            self._rec_layout.setContentsMargins(0, 8, 0, 8)
+            self._rec_layout.setSpacing(3)
             self._rec_scroll.setWidget(self._rec_widget)
-            return self._rec_scroll
+            layout.addWidget(self._rec_scroll)
+            return wrapper
+
+        # ------------------------------------------------------------------
+        # 시그널 연결
+        # ------------------------------------------------------------------
 
         def _connect_signals(self):
             self.signals.song_changed.connect(self._on_song_changed)
@@ -189,41 +188,14 @@ if PYQT_AVAILABLE:
             self.signals.mode_diff_changed.connect(self._on_mode_diff_changed)
             self.signals.recommend_ready.connect(self._on_recommend_ready)
 
-        def _on_recommend_ready(
-            self,
-            entries: list[RecommendEntry],
-            pivot_str: str,
-            no_selection: bool,
-        ):
-            try:
-                while self._rec_layout.count() > 0:
-                    item = self._rec_layout.takeAt(0)
-                    if item and item.widget():
-                        item.widget().deleteLater()
-
-                if no_selection or not entries:
-                    message = "패턴을 감지하는 중..." if no_selection else "추천 결과 없음"
-                    empty = QLabel(message)
-                    empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                    empty.setStyleSheet("color: #9DA8C4; font-size: 10px; padding: 20px;")
-                    self._rec_layout.addWidget(empty)
-                    self._rec_layout.addStretch()
-                    self._rec_count_label.setText("")
-                    return
-
-                for entry in entries:
-                    self._rec_layout.addWidget(PatternRow(entry))
-                self._rec_layout.addStretch()
-
-                played = sum(1 for e in entries if e.is_played)
-                self._rec_count_label.setText(f"{len(entries)}개 결과 (기록 {played})")
-            except Exception as exc:
-                print(f"[Overlay] _on_recommend_ready 오류: {exc}")
+        # ------------------------------------------------------------------
+        # 슬롯
+        # ------------------------------------------------------------------
 
         def _on_song_changed(self, title: str, all_patterns: list):
             self._song_label.setText(title)
             self._patterns_cache = {item["mode"]: item["patterns"] for item in all_patterns}
-            self._apply_mode_diff_highlight()
+            self._apply_tab_update()
 
         def _on_screen_changed(self, is_song_select: bool):
             if is_song_select:
@@ -242,29 +214,63 @@ if PYQT_AVAILABLE:
             self.move(ox, max(oy, top))
 
         def _on_mode_diff_changed(self, mode: str, diff: str, verified: bool):
+            color = "#00D4FF" if verified else "#FF4B4B"
+            self._status_lamp.setStyleSheet(
+                f"background-color: {color}; border-radius: 3px;"
+            )
             if verified:
-                self._status_lamp.setStyleSheet("background-color: #00D4FF; border-radius: 4px;")
-                self._status_lamp.setToolTip("인식 완료")
-                self._current_mode = mode if mode else None
-                self._current_diff = diff if diff else None
-                self._apply_mode_diff_highlight()
-                return
+                self._current_mode = mode or None
+                self._current_diff = diff or None
+                self._apply_tab_update()
 
-            self._status_lamp.setStyleSheet("background-color: #FF4B4B; border-radius: 4px;")
-            self._status_lamp.setToolTip("인식 검증 중...")
+        def _on_recommend_ready(
+            self,
+            entries: list[RecommendEntry],
+            pivot_str: str,
+            no_selection: bool,
+        ):
+            # 기존 행 제거
+            while self._rec_layout.count() > 0:
+                item = self._rec_layout.takeAt(0)
+                if item and item.widget():
+                    item.widget().deleteLater()
 
-        def _apply_mode_diff_highlight(self):
-            display_mode = self._current_mode or BUTTON_MODES[0]
+            if no_selection or not entries:
+                msg = "패턴을 감지하는 중..." if no_selection else "추천 결과 없음"
+                empty = QLabel(msg)
+                empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                empty.setStyleSheet(
+                    "color: #505870; font-size: 10px; padding: 16px 0;"
+                )
+                self._rec_layout.addWidget(empty)
+            else:
+                for entry in entries:
+                    self._rec_layout.addWidget(PatternRow(entry))
+
+            self._rec_layout.addStretch()
+
+        def _on_tab_clicked(self, diff: str):
+            """탭 수동 클릭 — 해당 난이도 뷰로 전환 (인식 상태와 무관)."""
+            self._current_diff = diff
+            self._apply_tab_update()
+
+        # ------------------------------------------------------------------
+        # 내부 업데이트
+        # ------------------------------------------------------------------
+
+        def _apply_tab_update(self):
+            display_mode = self._current_mode or (BUTTON_MODES[0] if BUTTON_MODES else "4B")
             patterns = self._patterns_cache.get(display_mode, [])
 
-            if self._pattern_panel:
-                self._pattern_panel.update_patterns(patterns)
-                self._pattern_panel.set_selected_diff(self._current_diff)
+            if self._tab_panel:
+                self._tab_panel.update_patterns(patterns)
+                self._tab_panel.set_active_diff(self._current_diff)
 
-            mode_str = self._current_mode or "—"
-            diff_str = self._current_diff or "—"
-            self._mode_indicator.setText(f"현재: {mode_str}  /  {diff_str}")
             self.adjustSize()
+
+        # ------------------------------------------------------------------
+        # 공개 API
+        # ------------------------------------------------------------------
 
         def set_user_move_callback(self, callback):
             self._user_move_cb = callback
@@ -279,10 +285,16 @@ if PYQT_AVAILABLE:
             else:
                 self.show()
 
+        # ------------------------------------------------------------------
+        # 드래그 / 페인트
+        # ------------------------------------------------------------------
+
         def mousePressEvent(self, event):
             if event.button() == Qt.MouseButton.LeftButton:
                 self._dragging = True
-                self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                self._drag_pos = (
+                    event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                )
 
         def mouseMoveEvent(self, event):
             if self._dragging:
@@ -294,25 +306,18 @@ if PYQT_AVAILABLE:
                 self._manual_position = True
                 if self._user_move_cb is not None:
                     self._user_move_cb(self.x(), self.y())
-                return
-            self._dragging = False
 
         def paintEvent(self, event):
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setBrush(QBrush(QColor(0, 0, 0, 40)))
+            painter.setBrush(QBrush(QColor(0, 0, 0, 50)))
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(self.rect().adjusted(4, 5, -1, -1), 14, 14)
-
-            painter.setBrush(QBrush(QColor(0, 0, 0, 68)))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(self.rect().adjusted(2, 3, -2, -1), 14, 14)
+            painter.drawRoundedRect(self.rect().adjusted(3, 4, -1, -1), 14, 14)
 
 else:
 
     class OverlaySignals:
         pass
-
 
     class OverlayWindow:
         def __init__(self, *args, **kwargs):
