@@ -47,14 +47,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
     "jacket_matcher": {
         "db_path": "cache/image_index.db",
-        "similarity_threshold": 0.7,
+        "similarity_threshold": 0.6,
         "match_interval_sec": 0.8,
         "jacket_change_threshold": 2.5,
         "jacket_force_recheck_sec": 2.0,
         "log_similarity": True,
         "jacket_x_start": 0.370,
         "jacket_x_end": 0.401,
-        "jacket_y_start": 0.494,
+        "jacket_y_start": 0.495,
         "jacket_y_end": 0.549,
     },
     "varchive": {
