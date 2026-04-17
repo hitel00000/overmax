@@ -134,7 +134,6 @@ if PYQT_AVAILABLE:
 
             # 왼쪽: 세로 탭
             self._tab_panel = VerticalTabPanel()
-            self._tab_panel.tab_clicked.connect(self._on_tab_clicked)
             layout.addWidget(self._tab_panel)
 
             # 오른쪽: 추천 목록
@@ -148,33 +147,12 @@ if PYQT_AVAILABLE:
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(4)
 
-            self._rec_scroll = QScrollArea()
-            self._rec_scroll.setWidgetResizable(True)
-            self._rec_scroll.setFrameShape(QFrame.Shape.NoFrame)
-            self._rec_scroll.setVerticalScrollBarPolicy(
-                Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-            )
-            self._rec_scroll.setHorizontalScrollBarPolicy(
-                Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-            )
-            self._rec_scroll.setStyleSheet("""
-                QScrollArea { background: transparent; }
-                QScrollBar:vertical {
-                    background: transparent; width: 3px;
-                }
-                QScrollBar::handle:vertical {
-                    background: rgba(180, 203, 255, 100);
-                    border-radius: 1px;
-                }
-            """)
-
             self._rec_widget = QWidget()
             self._rec_widget.setStyleSheet("background: transparent;")
             self._rec_layout = QVBoxLayout(self._rec_widget)
             self._rec_layout.setContentsMargins(0, 8, 0, 8)
             self._rec_layout.setSpacing(3)
-            self._rec_scroll.setWidget(self._rec_widget)
-            layout.addWidget(self._rec_scroll)
+            layout.addWidget(self._rec_widget)
             return wrapper
 
         # ------------------------------------------------------------------
@@ -193,7 +171,7 @@ if PYQT_AVAILABLE:
         # ------------------------------------------------------------------
 
         def _on_song_changed(self, title: str, all_patterns: list):
-            self._song_label.setText(title)
+            self._song_label.setText(f"{self._current_mode} :: {title}" if self._current_mode else title)
             self._patterns_cache = {item["mode"]: item["patterns"] for item in all_patterns}
             self._apply_tab_update()
 
@@ -248,11 +226,6 @@ if PYQT_AVAILABLE:
                     self._rec_layout.addWidget(PatternRow(entry))
 
             self._rec_layout.addStretch()
-
-        def _on_tab_clicked(self, diff: str):
-            """탭 수동 클릭 — 해당 난이도 뷰로 전환 (인식 상태와 무관)."""
-            self._current_diff = diff
-            self._apply_tab_update()
 
         # ------------------------------------------------------------------
         # 내부 업데이트

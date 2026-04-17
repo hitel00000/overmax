@@ -95,7 +95,7 @@ class VerticalTabPanel(QWidget):
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setContentsMargins(0, 6, 0, 6)
         layout.setSpacing(4)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
@@ -105,7 +105,7 @@ class VerticalTabPanel(QWidget):
             layout.addWidget(tab)
 
         layout.addStretch()
-        self.setFixedWidth(64)
+        self.setFixedWidth(52)
         self.setStyleSheet("background: transparent;")
 
     def update_patterns(self, patterns: list[dict]):
