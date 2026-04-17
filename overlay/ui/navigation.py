@@ -6,7 +6,7 @@ from constants import (
     LOGO_X_START, LOGO_X_END, LOGO_Y_START, LOGO_Y_END,
     JACKET_X_START, JACKET_X_END, JACKET_Y_START, JACKET_Y_END,
     BTN_MODE_ROI,
-    DIFF_DETECT_X_BASE, DIFF_DETECT_Y, DIFF_DETECT_OFFSETS,
+    DIFF_PANEL_ROI, DIFF_X_OFFSETS,
     REF_WIDTH, REF_HEIGHT
 )
 
@@ -50,12 +50,15 @@ class RoiOverlayWindow(QWidget):
     def is_enabled(self) -> bool:
         return self._enabled
 
+    def _ref_rect(self, x1: float, y1: float, x2: float, y2: float) -> QRect:
+        return self._ratio_rect(x1 / REF_WIDTH, y1 / REF_HEIGHT, x2 / REF_WIDTH, y2 / REF_HEIGHT)
+
     def _ratio_rect(self, rx1: float, ry1: float, rx2: float, ry2: float) -> QRect:
         x = int(self.width() * rx1)
         y = int(self.height() * ry1)
         w = max(1, int(self.width() * (rx2 - rx1)))
         h = max(1, int(self.height() * (ry2 - ry1)))
-        return QRect(x, y, w, h)
+        return QRect(x - 1, y - 1, w + 2, h + 2)
 
     def _draw_box(self, painter: QPainter, rect: QRect, color: QColor, label: str):
         painter.setPen(QPen(color, 2))
@@ -87,18 +90,16 @@ class RoiOverlayWindow(QWidget):
         # 버튼 모드 감지 영역
         self._draw_box(
             painter,
-            self._ratio_rect(*BTN_MODE_ROI),
+            self._ref_rect(*BTN_MODE_ROI),
             QColor("#00FF88"),
             "BTN MODE",
         )
 
         # 난이도 감지 위치
-        for diff, dx in DIFF_DETECT_OFFSETS.items():
-            rx1 = DIFF_DETECT_X_BASE + dx
-            ry1 = DIFF_DETECT_Y
+        for diff, dx in DIFF_X_OFFSETS.items():
             self._draw_box(
                 painter,
-                self._ratio_rect(rx1 - 1/REF_WIDTH, ry1 - 1/REF_HEIGHT, rx1 + 3/REF_WIDTH, ry1 + 3/REF_HEIGHT),
+                self._ref_rect(DIFF_PANEL_ROI[0] + dx, DIFF_PANEL_ROI[1], DIFF_PANEL_ROI[2] + dx, DIFF_PANEL_ROI[3]),
                 QColor("#FFAA00"),
                 diff,
             )

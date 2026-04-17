@@ -77,21 +77,35 @@ RATE_X2, RATE_Y2 = 270, 605
 RATE_OCR_INTERVAL = 1.5
 
 # ------------------------------------------------------------------
-# UI 내비게이션 및 상세 인식 영역 (1920x1080 기준 고정 비율)
+# UI 내비게이션 및 상세 인식 영역 (1920x1080 기준 픽셀 좌표)
 # ------------------------------------------------------------------
 
 # 버튼 모드 감지 영역
-BTN_MODE_ROI = (80 / REF_WIDTH, 130 / REF_HEIGHT, 85 / REF_WIDTH, 135 / REF_HEIGHT)
+BTN_MODE_ROI = (80, 130, 85, 135)
 
-# 난이도별 감지 오프셋 (기준 해상도 대비)
-DIFF_DETECT_Y = 487 / REF_HEIGHT
-DIFF_DETECT_X_BASE = 97 / REF_WIDTH
-DIFF_DETECT_OFFSETS = {
-    "NM": 0 / REF_WIDTH,
-    "HD": 120 / REF_WIDTH,
-    "MX": 240 / REF_WIDTH,
-    "SC": 360 / REF_WIDTH,
+# 버튼 모드 대표색 (BGR)
+BTN_COLORS: dict[str, list[tuple[int, int, int]]] = {
+    "4B": [(0x55, 0x4F, 0x2D), (0x5A, 0x47, 0x0C)],   # #2D4F55 / #0C475A
+    "5B": [(0xC6, 0xA9, 0x44)],                         # #44A9C6
+    "6B": [(0x30, 0x94, 0xED)],                         # #ED9430
+    "8B": [(0x31, 0x14, 0x1D)],                         # #1D1431
 }
+BTN_MODE_MAX_DIST = 60   # 이 이상이면 인식 실패로 간주
+
+# 난이도 패널 ROI (NM 기준, 비율)
+DIFF_PANEL_ROI = (98, 488, 208, 516)
+
+# 난이도별 X 오프셋 (비율)
+DIFF_X_OFFSETS: dict[str, float] = {
+    "NM": 0,
+    "HD": 120,
+    "MX": 240,
+    "SC": 360,
+}
+
+# 난이도 감지 임계값
+DIFF_MIN_BRIGHTNESS   = 45.0   # 이하이면 UI 전환 중으로 간주
+DIFF_CONFIDENT_MARGIN = 15.0   # 1위 패널이 2위보다 이 이상 밝아야 confident
 
 # ------------------------------------------------------------------
 # 오버레이 제어
