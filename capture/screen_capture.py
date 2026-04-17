@@ -262,7 +262,7 @@ class ScreenCapture:
         return int(sid) if str(sid).isdigit() else None
 
     def _update_stability(self, current: tuple, is_confident: bool) -> bool:
-        valid = all(current) and is_confident
+        valid = all(e is not None for e in current) and is_confident
         self._state_history.append(current if valid else None)
         history = list(self._state_history)
         return (

@@ -95,7 +95,7 @@ class OverlayController:
         recommendations = []
         is_rec_loading = not state.is_stable
 
-        if self._song_id:
+        if self._song_id is not None:
             song = self.db.search_by_id(self._song_id)
             if song:
                 song_name = song["name"]
@@ -115,8 +115,8 @@ class OverlayController:
                 self.log(f"ID={self._song_id}를 DB에서 찾을 수 없음")
 
         # 3. 시그널 일괄 송출 (순서대로 큐에 쌓임 -> UI에서 한 번에 처리될 확률 높음)
-        if song_changed or not self._song_id:
-            if not self._song_id:
+        if song_changed or self._song_id is not None:
+            if self._song_id is None:
                 self._emit_initial_state()
             else:
                 self.signals.song_changed.emit(song_name, all_patterns)
@@ -137,7 +137,7 @@ class OverlayController:
         self._refresh_recommendations()
 
     def _refresh_recommendations(self):
-        if not self._song_id or not self._current_mode or not self._current_diff:
+        if self._song_id is None or not self._current_mode or not self._current_diff:
             self.signals.recommend_ready.emit([], "", True)
             return
 
