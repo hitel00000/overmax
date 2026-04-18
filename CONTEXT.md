@@ -90,7 +90,6 @@ Letterbox/Pillarbox 자동 보정 포함.
 
 ## 2. 성능 리스크
 
-- `ImageDB.search()`: 전체 row 순회 (인메모리 캐시 미도입)
 - OCR 호출 비용: 로고 + Rate 각 독립 호출
 
 ## 3. 사용자 식별
