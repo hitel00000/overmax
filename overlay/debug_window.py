@@ -8,6 +8,9 @@ on_debug_log 콜백 → DebugSignals.log_received → DebugWindow._append_log �
 
 from typing import Optional, Callable
 from settings import SETTINGS
+import ctypes
+
+WDA_EXCLUDEFROMCAPTURE = 0x00000011
 
 try:
     from PyQt6.QtWidgets import (
@@ -65,6 +68,13 @@ class DebugWindow(QWidget):
         )
         self.resize(700, 400)
         self.setStyleSheet("background: #1A1A2E; color: #CCCCCC;")
+
+        # 디버그 창 화면 캡쳐 제외 속성 부여
+        hwnd = int(self.winId())
+        try:
+            ctypes.windll.user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
+        except Exception as e:
+            print(f"[Debug] SetWindowDisplayAffinity 실패: {e}")
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)

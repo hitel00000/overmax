@@ -1,6 +1,9 @@
 """PyQt6 overlay window and signal bridge."""
 
 from typing import Optional
+import ctypes
+
+WDA_EXCLUDEFROMCAPTURE = 0x00000011
 
 try:
     from PyQt6.QtWidgets import (
@@ -66,6 +69,13 @@ if PYQT_AVAILABLE:
             self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
             self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
             self.setFixedWidth(360)
+
+            # 캡처 프로그램(mss 등)에서 오버레이를 캡처하지 않도록 설정
+            hwnd = int(self.winId())
+            try:
+                ctypes.windll.user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
+            except Exception as e:
+                print(f"[Overlay] SetWindowDisplayAffinity 실패: {e}")
 
         def _setup_ui(self):
             root = QVBoxLayout(self)
