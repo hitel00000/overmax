@@ -119,6 +119,7 @@ Letterbox/Pillarbox 자동 보정 포함.
 - `rate == 0.0`은 저장하지 않음 (미플레이로 간주)
 - `if rate is None` 과 `if rate == 0.0` 은 의미가 다름 — 명시적 None 체크 필수
 - `song_id` 가 0인 경우도 존재함. `song_id is None` 으로 검사 해야 함
+- image_db 에 추가/삭제는 overlay 프로그램을 통해 하지 않음
 
 ---
 
@@ -132,7 +133,6 @@ Letterbox/Pillarbox 자동 보정 포함.
 
 # Next Focus
 
-1. **ImageDB 인메모리 캐시 도입** — `search()` 전체 row 순회 제거
-2. **빌드 결과물 크기 축소**
-3. **버튼 모드 샘플 보강 및 임계값 튜닝**
-4. **DLC 필터링** — 추천 목록에서 미보유 DLC 제외
+1. **Rate OCR 좌표 비율 추가 지원** — 현재 16:9 비율만 지원
+1. **DLC 필터링** — 추천 목록에서 미보유 DLC 제외
+1. **빌드 결과물 크기 축소**
