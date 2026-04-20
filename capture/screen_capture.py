@@ -102,6 +102,7 @@ class ScreenCapture:
         self._state_history: deque = deque(maxlen=max(1, MODE_DIFF_HISTORY))
         self._last_emitted_state: Optional[GameSessionState] = None
         self._recorded_states: set = set()
+        self._rate_ocr_attempts: dict[tuple, int] = {}
         self._last_rate_ocr_ts = 0.0
         self._last_is_leaving = False
         self._last_logo_detected_val: Optional[bool] = None
@@ -224,6 +225,7 @@ class ScreenCapture:
         self._current_song_id = None
         self._last_emitted_state = None
         self._recorded_states.clear()
+        self._rate_ocr_attempts.clear()
 
     def _update_song_id_from_jacket(self, full_frame: np.ndarray, now: float):
         if not self._should_match_jacket(now):
@@ -288,7 +290,17 @@ class ScreenCapture:
             return
         if now - self._last_rate_ocr_ts < RATE_OCR_INTERVAL:
             return
+            
+        # 실패 시 무한 재시도(프레임 드랍 유발) 방지 — 최대 3회까지만 OCR 시도
+        attempts = self._rate_ocr_attempts.get(current, 0)
+        if attempts >= 3:
+            self.log(f"Rate OCR 시도 한도 초과(3회). 해당 곡({current}) OCR 포기.")
+            self._recorded_states.add(current)
+            return
+
         self._last_rate_ocr_ts = now
+        self._rate_ocr_attempts[current] = attempts + 1
+        
         song_id, mode, diff = current
         success = await self._do_record_rate(full_frame, song_id, mode, diff)
         if success:
