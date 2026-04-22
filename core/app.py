@@ -22,6 +22,7 @@ from settings import SETTINGS
 from data.steam_session import get_most_recent_steam_id
 from core.game_state import GameSessionState
 from data.image_db_updater import check_and_update
+from core.utils import show_error_message, check_environment
 
 from constants import (
     WINDOW_TITLE,
@@ -36,9 +37,12 @@ _ERROR_ALREADY_EXISTS = 183
 
 class OvermaxApp:
     def __init__(self):
+        check_environment()
         self._mutex_handle = self._acquire_mutex()
         if self._mutex_handle is None:
-            print("[Main] 이미 Overmax가 실행 중입니다. 기존 인스턴스를 종료한 뒤 다시 실행하세요.")
+            msg = "이미 Overmax가 실행 중입니다. 기존 인스턴스를 종료한 뒤 다시 실행하세요."
+            print(f"[Main] {msg}")
+            show_error_message(msg)
             sys.exit(0)
 
         self.varchive_db: Optional[VArchiveDB] = None
@@ -72,7 +76,9 @@ class OvermaxApp:
         try:
             self.varchive_db.load(local_path=local)
         except Exception as e:
-            print(f"[Main] DB 로드 실패: {e}\n  songs.json을 cache/ 폴더에 넣거나 인터넷 연결을 확인하세요.")
+            msg = f"DB 로드 실패: {e}\nsongs.json을 cache/ 폴더에 넣거나 인터넷 연결을 확인하세요."
+            print(f"[Main] {msg}")
+            show_error_message(msg)
             sys.exit(1)
 
         image_cfg = SETTINGS["jacket_matcher"]
