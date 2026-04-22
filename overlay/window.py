@@ -21,11 +21,13 @@ try:
 except ImportError:
     PYQT_AVAILABLE = False
 
+import ctypes
+import win32gui
 from data.varchive import BUTTON_MODES
 from data.recommend import RecommendEntry
 from overlay.ui.pattern_view import VerticalTabPanel
 from overlay.ui.recommend_view import PatternRow
-from constants import BTN_COLORS
+from constants import BTN_COLORS, WINDOW_TITLE
 
 
 if PYQT_AVAILABLE:
@@ -314,6 +316,8 @@ if PYQT_AVAILABLE:
                 self._drag_pos = (
                     event.globalPosition().toPoint() - self.frameGeometry().topLeft()
                 )
+                self.activateWindow()
+                self.raise_()
 
         def mouseMoveEvent(self, event):
             if self._dragging:
@@ -325,6 +329,7 @@ if PYQT_AVAILABLE:
                 self._manual_position = True
                 if self._user_move_cb is not None:
                     self._user_move_cb(self.x(), self.y())
+                self._restore_game_focus()
 
         def paintEvent(self, event):
             painter = QPainter(self)
@@ -332,6 +337,15 @@ if PYQT_AVAILABLE:
             painter.setBrush(QBrush(QColor(0, 0, 0, 50)))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(self.rect().adjusted(3, 4, -1, -1), 14, 14)
+            
+        # ------------------------------------------------------------------
+        # 게임 포커스 복원
+        # ------------------------------------------------------------------
+
+        def _restore_game_focus(self):
+            hwnd = win32gui.FindWindow(None, WINDOW_TITLE)
+            if hwnd:
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
 
 else:
 
