@@ -12,6 +12,7 @@ a = Analysis(
     binaries=[], # torch_libs 제거 
     datas=[
         ("settings.json", "."),
+        ("version_info.txt", "."),
     ],    # easyocr_datas 제거 
     hiddenimports=[
         "PyQt6.QtCore",
@@ -64,6 +65,7 @@ exe = EXE(
     debug=False,
     console=False, # 실배포용 [cite: 34]
     upx=True,
+    version='version_info.txt',
 )
 
 coll = COLLECT(
