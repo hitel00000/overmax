@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 
 from settings import SETTINGS, save_settings
 from data.steam_session import get_all_steam_sessions, mask_steam_id, get_most_recent_steam_id
+from core.version import APP_VERSION
 
 
 # 프리셋 정의 — 레이블과 scale 값만. 수치는 UI에 노출하지 않는다.
@@ -316,6 +317,10 @@ class SettingsWindow(QWidget):
         enabled_checkbox.setStyleSheet("color: #F0F4FF;")
         enabled_checkbox.toggled.connect(self._on_enabled_toggled)
         layout.addWidget(enabled_checkbox)
+
+        current_version_label = QLabel(f"현재 버전: {APP_VERSION}")
+        current_version_label.setStyleSheet("color: #F0F4FF; font-size: 16px; font-weight: 700;")
+        layout.addWidget(current_version_label)
 
         return tab
 
