@@ -34,6 +34,7 @@ WindowTracker
 → OverlayWindow (PyQt6)
        └── VerticalTabPanel (난이도 탭)
        └── PatternRow × N  (추천 목록)
+       └── SettingsWindow (설정)
 ```
 
 패키지 구조: `capture/`, `core/`, `data/`, `detection/`, `overlay/`
@@ -58,7 +59,8 @@ WindowTracker
 ## State Handling
 
 - hysteresis 기반 선곡화면 판정 (on/off 비율 별도 임계값)
-- 후반 히스토리 비율 하락 감지 시 `[이탈중]` skip
+- **Confidence Score**: 히스테리시스 버퍼의 hit 비율을 기반으로 산출 (0.0~1.0)
+- 후반 히스토리 비율 하락 감지 시 `[이탈중]` skip (Confidence 0.5x 보정)
 - `MODE_DIFF_HISTORY` 연속 동일 프레임 기반 안정화 (기본 3프레임)
 - `GameSessionState.is_stable` = True일 때만 상태 commit
 
@@ -83,6 +85,11 @@ Letterbox/Pillarbox 자동 보정 포함.
 - Steam ID 기반 사용자 식별 (로그인 세션 자동 감지)
 - ROIManager 해상도 변환 완료 (Letterbox/Pillarbox 보정)
 - 설정창 추가 완료 (투명도 조절 및 설정 파일 분리 적용)
+- **V-Archive 기록 불러오기**: API 기반 데이터 수집 및 로컬 DB 병합 완료 (Read-only)
+- **오버레이 스케일링**: 0.75x ~ 1.5x 프리셋 지원 및 스냅 기능 구현 완료
+- **신뢰도 기반 투명도**: 인식 상태에 따라 오버레이가 부드럽게 페이드인/아웃됨
+- **설정 시스템 최적화**: `settings.user.json`에 변경된 항목만 저장(delta save) 및 값 검증(clamp/snap)
+- **자동 업데이트 시스템**: 앱(GitHub Releases) 및 이미지 DB(`image_index.db`) 자동 갱신 파이프라인 구축 완료
 
 ---
 
@@ -101,10 +108,12 @@ Letterbox/Pillarbox 자동 보정 포함.
 ## 2. 성능 리스크
 
 - OCR 호출 비용: 로고 + Rate 각 독립 호출 (Windows OCR 연산 부하 모니터링 필요)
+- Rate OCR 시도 횟수 제한 (현재 최대 3회)으로 무한 재시도 방지
 
 ## 3. 사용자 식별
 
 - Steam ID: `loginusers.vdf` 파싱, 멀티 계정 전환 시 갱신 타이밍 불안정
+- V-Archive ID: 사용자가 직접 입력해야 하며, Steam ID와의 매핑 로직 필요
 
 ---
 
@@ -131,6 +140,7 @@ Letterbox/Pillarbox 자동 보정 포함.
 - `song_id` 가 0인 경우도 존재함. `song_id is None` 으로 검사 해야 함
 - image_db 에 추가/삭제는 overlay 프로그램을 통해 하지 않음
 - 모든 설정 변경은 `settings.user.json`에 저장하며, `settings.json` 보다 우선순위가 높음
+- **설정값 검증**: 저장 시 `_normalize_dict`를 통해 유효 범위 내로 강제 조정
 
 ---
 
@@ -144,12 +154,7 @@ Letterbox/Pillarbox 자동 보정 포함.
 
 # Next Focus
 
-1. **V-Archive 기록 연동**
-    - 맥스콤보여부 저장하도록 DB 업데이트
-    - 스팀 ID(View용으로 스팀 닉네임) - V-Archive ID 쌍을 저장하기
-    - 일단 내려받는것만 구현
-    - 설정창에서 V-Archive ID 를 입력 받기
-    - 기록 가져오기/덮어쓰기
 1. **Rate OCR 좌표 비율 추가 지원** — 현재 16:9 비율만 지원
 1. **DLC 필터링** — 추천 목록에서 미보유 DLC 제외
-1. **빌드 결과물 크기 축소**
+1. **버튼 모드/난이도 인식 보강** — 단순 픽셀 거리/밝기 외에 보조 알고리즘 검토
+1. **빌드 결과물 크기 축소** — 불필요한 패키지 제외 및 리소스 최적화
