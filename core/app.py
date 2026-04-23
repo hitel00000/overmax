@@ -206,11 +206,8 @@ class OvermaxApp:
             print("[Main] ImageDB 초기화 실패 - OCR 전용 모드로 실행")
             self.image_db = None
 
-        self.record_db = RecordDB(db_path=RECORD_DB_PATH)
+        self.record_db = RecordDB(db_path=RECORD_DB_PATH, steam_id=get_most_recent_steam_id())
         if self.record_db.initialize():
-            changed, before_sid, after_sid = self.record_db.set_steam_id(get_most_recent_steam_id())
-            if changed:
-                print(f"[Main] Steam 세션 갱신: {before_sid} -> {after_sid}")
             stats = self.record_db.stats()
             print(f"[Main] RecordDB 준비 완료: {stats.get('total', 0)}개 레코드 (steam_id={stats.get('steam_id', 'unknown')})")
         else:
