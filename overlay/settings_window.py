@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QFrame,
     QButtonGroup,
+    QCheckBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint
 from PyQt6.QtGui import QColor, QPainter, QBrush
@@ -105,6 +106,7 @@ class SettingsWindow(QWidget):
         """)
 
         self.tabs.addTab(self._build_ui_tab(), "UI")
+        self.tabs.addTab(self._build_system_tab(), "System")
         content_layout.addWidget(self.tabs)
         layout.addLayout(content_layout)
 
@@ -165,6 +167,26 @@ class SettingsWindow(QWidget):
         layout.addWidget(self._build_scale_row())
 
         return tab
+
+    def _build_system_tab(self) -> QWidget:
+        tab = QWidget()
+        tab.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(15, 20, 15, 20)
+        layout.setSpacing(24)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        enabled_checkbox = QCheckBox("자동 업데이트")
+        enabled_checkbox.setChecked(SETTINGS.get("app_update", {}).get("enabled", True))
+        enabled_checkbox.setStyleSheet("color: #F0F4FF;")
+        enabled_checkbox.toggled.connect(self._on_enabled_toggled)
+        layout.addWidget(enabled_checkbox)
+
+        return tab
+
+    def _on_enabled_toggled(self, checked: bool):
+        SETTINGS.get("app_update", {})["enabled"] = checked
+        save_settings()
 
     # ------------------------------------------------------------------
     # 투명도 슬라이더
