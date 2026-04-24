@@ -65,6 +65,15 @@ class RecordManager:
         """로컬 DB에 저장 (V-Archive 캐시는 읽기 전용)"""
         return self.rdb.upsert(song_id, button_mode, difficulty, rate, is_max_combo)
 
+    def delete(
+        self, 
+        song_id: int, 
+        button_mode: str, 
+        difficulty: str
+    ) -> bool:
+        """로컬 DB에서 기록 삭제"""
+        return self.rdb.delete(song_id, button_mode, difficulty)
+
     def get(self, song_id: int, button_mode: str, difficulty: str) -> Optional[dict]:
         local_data = self.rdb.get(song_id, button_mode, difficulty)
         v_rate, is_max_combo = self._varchive_cache.get((song_id, button_mode, difficulty), (None, False))

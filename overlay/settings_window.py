@@ -31,6 +31,8 @@ class SettingsWindow(QWidget):
     opacity_changed = pyqtSignal(float)
     scale_changed   = pyqtSignal(float)
     fetch_varchive_requested = pyqtSignal(str, str, int)  # steam_id, v_id, button (0 for all)
+    sync_requested = pyqtSignal()   # 동기화 창 열기 요청
+    account_file_changed = pyqtSignal(str, str)  # steam_id, account_path
 
     def __init__(self):
         super().__init__()
@@ -40,6 +42,7 @@ class SettingsWindow(QWidget):
         self._session_labels_by_sid: dict[str, QLabel] = {}
         self._session_badges_by_sid: dict[str, QLabel] = {}
         self._session_names_by_sid: dict[str, str] = {}
+        self._account_edits_by_sid: dict[str, QLineEdit] = {}
 
         self._setup_window()
         self._setup_ui()
@@ -213,7 +216,12 @@ class SettingsWindow(QWidget):
         current_sid = get_most_recent_steam_id()
 
         for s in sessions:
+            entry = user_map.get(s.steam_id, {})
+            v_id = entry.get("v_id", "") if isinstance(entry, dict) else ""
+            account_path = entry.get("account_path", "") if isinstance(entry, dict) else ""
+
             row = QFrame()
+            row.setObjectName(f"SessionRow_{s.steam_id}")
             row_layout = QVBoxLayout(row)
             
             # 상단: 계정 정보
@@ -243,7 +251,7 @@ class SettingsWindow(QWidget):
             
             edit = QLineEdit()
             edit.setPlaceholderText("V-Archive ID")
-            edit.setText(user_map.get(s.steam_id, ""))
+            edit.setText(v_id)
             edit.setStyleSheet("""
                 QLineEdit {
                     background: rgb(24, 32, 50);
@@ -279,6 +287,45 @@ class SettingsWindow(QWidget):
             input_row.addLayout(btn_layout, 2)
             row_layout.addLayout(input_row)
 
+            # account.txt 섹션
+            row_layout.addSpacing(8)
+
+            account_label = QLabel("V-Archive account.txt")
+            account_label.setStyleSheet("color: #8891A7; font-size: 11px; margin-top: 4px;")
+            row_layout.addWidget(account_label)
+
+            account_row = QHBoxLayout()
+            account_edit = QLineEdit()
+            account_edit.setPlaceholderText("account.txt 경로")
+            account_edit.setText(account_path)
+            account_edit.setReadOnly(True)
+            account_edit.setStyleSheet("""
+                QLineEdit {
+                    background: rgb(24, 32, 50);
+                    border: 1px solid rgb(60, 75, 110);
+                    border-radius: 4px;
+                    color: #F0F4FF;
+                    padding: 4px 8px;
+                }
+            """)
+            account_row.addWidget(account_edit, 1)
+
+            browse_btn = QPushButton("찾아보기")
+            browse_btn.setFixedSize(64, 28)
+            browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            browse_btn.setStyleSheet(self._fetch_btn_style())
+            browse_btn.clicked.connect(lambda _, sid=s.steam_id, edit=account_edit: self._on_browse_account(sid, edit))
+            account_row.addWidget(browse_btn)
+
+            sync_btn = QPushButton("동기화 후보 확인")
+            sync_btn.setFixedSize(110, 28)
+            sync_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            sync_btn.setStyleSheet(self._fetch_btn_style(is_all=True))
+            sync_btn.clicked.connect(self.sync_requested.emit)
+            account_row.addWidget(sync_btn)
+
+            row_layout.addLayout(account_row)
+
             self._session_rows_by_sid[s.steam_id] = row
             self._session_labels_by_sid[s.steam_id] = name_label
             self._session_badges_by_sid[s.steam_id] = badge_label
@@ -299,7 +346,7 @@ class SettingsWindow(QWidget):
         border_color = "rgb(0, 212, 255)" if is_current else "rgb(40, 50, 80)"
         text_color = "#00D4FF" if is_current else "#F0F4FF"
         row.setStyleSheet(f"""
-            QFrame {{
+            QFrame#SessionRow_{steam_id} {{
                 background: rgb(30, 40, 62);
                 border-radius: 8px;
                 border: 1px solid {border_color};
@@ -311,8 +358,19 @@ class SettingsWindow(QWidget):
         badge.setText("Current")
 
     def _on_v_id_changed(self, steam_id: str, v_id: str):
-        SETTINGS["varchive"]["user_map"][steam_id] = v_id.strip()
+        entry = SETTINGS["varchive"]["user_map"].setdefault(steam_id, {})
+        if isinstance(entry, str):
+            entry = {"v_id": entry, "account_path": ""}
+            SETTINGS["varchive"]["user_map"][steam_id] = entry
+        entry["v_id"] = v_id.strip()
         save_settings()
+
+    def _on_account_path_changed(self, steam_id: str, path: str):
+        entry = SETTINGS["varchive"]["user_map"].setdefault(steam_id, {})
+        entry["account_path"] = path
+        save_settings()
+        # controller에 알림
+        self.account_file_changed.emit(steam_id, path)
 
     def _on_auto_refresh_toggled(self, checked: bool):
         if "varchive" not in SETTINGS:
@@ -336,6 +394,16 @@ class SettingsWindow(QWidget):
                 color: rgb(18, 24, 38);
             }}
         """
+
+    def _on_browse_account(self, steam_id: str, account_edit: QLineEdit):
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "account.txt 선택", "", "Text Files (*.txt);;All Files (*)"
+        )
+        if not path:
+            return
+        account_edit.setText(path)
+        self._on_account_path_changed(steam_id, path)
 
     def _build_system_tab(self) -> QWidget:
         tab = QWidget()

@@ -67,3 +67,57 @@ class VArchiveRecordClient:
         except Exception as e:
             print(f"[VArchiveClient] 캐시 로드 실패 ({cache_file}): {e}")
             return []
+
+    def upsert_cached_record(
+        self,
+        steam_id: str,
+        button: int,
+        song_id: int,
+        difficulty: str,
+        score: float,
+        is_max_combo: bool,
+    ) -> bool:
+        """단일 패턴 캐시를 갱신/추가한다."""
+        cache_file = self.cache_dir / steam_id / f"{button}.json"
+        payload = self._load_cache_payload(cache_file)
+        records = payload.setdefault("records", [])
+
+        target_title = str(song_id)
+        target_pattern = str(difficulty)
+        updated = False
+        for rec in records:
+            if str(rec.get("title", "")) != target_title:
+                continue
+            if str(rec.get("pattern", "")) != target_pattern:
+                continue
+            rec["score"] = float(score)
+            rec["maxCombo"] = bool(is_max_combo)
+            updated = True
+            break
+
+        if not updated:
+            records.append({
+                "title": target_title,
+                "pattern": target_pattern,
+                "score": float(score),
+                "maxCombo": bool(is_max_combo),
+            })
+
+        try:
+            self.cache_dir.joinpath(steam_id).mkdir(parents=True, exist_ok=True)
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            print(f"[VArchiveClient] 캐시 갱신 실패 ({cache_file}): {e}")
+            return False
+
+    def _load_cache_payload(self, cache_file: Path) -> dict:
+        if not cache_file.exists():
+            return {"records": []}
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {"records": []}
+        except Exception:
+            return {"records": []}

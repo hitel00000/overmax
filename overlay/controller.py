@@ -18,10 +18,12 @@ except ImportError:
 from data.varchive import VArchiveDB, BUTTON_MODES
 from data.recommend import Recommender
 from data.varchive_client import VArchiveRecordClient
+from data.varchive_uploader import parse_account_file
 from core.game_state import GameSessionState
 from overlay.ui.navigation import RoiOverlayWindow
 from overlay.window import OverlaySignals, OverlayWindow
 from overlay.settings_window import SettingsWindow
+from overlay.sync_window import SyncWindow
 
 from constants import (
     TOGGLE_HOTKEY,
@@ -49,6 +51,18 @@ class OverlayController:
         self._current_diff: Optional[str] = None
 
         self._last_window_rect: Optional[tuple[int, int, int, int]] = None
+
+    def _get_account_path_for_steam_id(self, steam_id: str) -> str:
+        varchive_cfg = SETTINGS.get("varchive", {})
+        user_map = varchive_cfg.get("user_map", {})
+        entry = user_map.get(steam_id, {}) if isinstance(user_map, dict) else {}
+        if isinstance(entry, dict):
+            path = entry.get("account_path", "")
+            if path:
+                return str(path)
+        # 하위 호환: 구버전 단일 account_path
+        legacy_path = varchive_cfg.get("account_path", "")
+        return str(legacy_path) if legacy_path else ""
 
     def _emit_initial_state(self):
         all_patterns = [{"mode": mode, "patterns": []} for mode in BUTTON_MODES]
@@ -237,6 +251,12 @@ class OverlayController:
 
         threading.Thread(target=work, daemon=True).start()
 
+    def _on_account_file_changed(self, steam_id: str, path: str):
+        from data.varchive_uploader import parse_account_file
+        account = parse_account_file(path) if path else None
+        if self._sync_window:
+            self._sync_window.set_account(steam_id, account)
+
     def run(self, debug_ctrl=None):
         if not PYQT_AVAILABLE:
             print("[Overlay] PyQt6 없음, 콘솔 모드로 실행")
@@ -258,6 +278,19 @@ class OverlayController:
         self._settings_window.scale_changed.connect(self.signals.scale_changed)
         self._settings_window.fetch_varchive_requested.connect(self._on_fetch_varchive)
         self.signals.settings_requested.connect(self._settings_window.show_window)
+
+        self._sync_window = SyncWindow(self.db, self.record_db)
+
+        # 현재 steam_id의 account.txt 경로가 이미 저장돼 있으면 즉시 로드
+        steam_id = self.record_db.get_steam_id() if self.record_db else "__unknown__"
+        account_path = self._get_account_path_for_steam_id(steam_id)
+        if account_path:
+            account = parse_account_file(account_path)
+            self._sync_window.set_account(steam_id, account)
+
+        # 시그널 연결
+        self._settings_window.sync_requested.connect(self._sync_window.show_window)
+        self._settings_window.account_file_changed.connect(self._on_account_file_changed)
 
         self._roi_window = RoiOverlayWindow()
         self._roi_window.hide()
@@ -282,7 +315,8 @@ class OverlayController:
         if not sid:
             return
             
-        v_id = SETTINGS.get("varchive", {}).get("user_map", {}).get(sid)
+        entry = SETTINGS.get("varchive", {}).get("user_map", {}).get(sid, {})
+        v_id = entry.get("v_id", "") if isinstance(entry, dict) else entry
         if v_id:
             self.log(f"자동 갱신 시작 (SteamID: {sid}, V-ID: {v_id})")
             self._on_fetch_varchive(sid, v_id, 0) # 0 for all buttons

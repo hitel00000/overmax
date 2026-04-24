@@ -134,6 +134,29 @@ class RecordDB:
             print(f"[RecordDB] upsert 실패: {e}")
             return False
 
+    def delete(
+        self, 
+        song_id: int, 
+        button_mode: str, 
+        difficulty: str
+    ) -> bool:
+        """기록 삭제."""
+        if not self.is_ready:
+            return False
+        sid = str(song_id)
+        steam_id = self.get_steam_id()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("""
+                    DELETE FROM records
+                    WHERE steam_id=? AND song_id=? AND button_mode=? AND difficulty=?
+                """, (steam_id, sid, button_mode, difficulty))
+                conn.commit()
+            return True
+        except Exception as e:
+            print(f"[RecordDB] delete 실패: {e}")
+            return False
+
     def get(self, song_id: int, button_mode: str, difficulty: str) -> Optional[float]:
         """단건 조회. 없으면 None."""
         if not self.is_ready:

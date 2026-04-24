@@ -183,6 +183,13 @@ def _normalize_dict(settings: dict[str, Any]):
         except (ValueError, TypeError):
             jacket["similarity_threshold"] = 0.6
 
+    # user_map 구버전 마이그레이션: { sid: "v_id" } → { sid: { "v_id": "...", "account_path": "" } }
+    varchive = settings.get("varchive", {})
+    user_map = varchive.get("user_map", {})
+    for sid, val in user_map.items():
+        if isinstance(val, str):
+            user_map[sid] = {"v_id": val, "account_path": ""}
+
 
 SETTINGS, BASE_SETTINGS, USER_SETTINGS_PATH = _init_settings()
 
