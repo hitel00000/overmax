@@ -36,6 +36,10 @@ class SettingsWindow(QWidget):
         super().__init__()
         self._dragging = False
         self._drag_pos = QPoint()
+        self._session_rows_by_sid: dict[str, QFrame] = {}
+        self._session_labels_by_sid: dict[str, QLabel] = {}
+        self._session_badges_by_sid: dict[str, QLabel] = {}
+        self._session_names_by_sid: dict[str, str] = {}
 
         self._setup_window()
         self._setup_ui()
@@ -169,6 +173,11 @@ class SettingsWindow(QWidget):
         return tab
 
     def _build_varchive_tab(self) -> QWidget:
+        self._session_rows_by_sid = {}
+        self._session_labels_by_sid = {}
+        self._session_badges_by_sid = {}
+        self._session_names_by_sid = {}
+
         tab = QWidget()
         tab.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(tab)
@@ -204,27 +213,29 @@ class SettingsWindow(QWidget):
         current_sid = get_most_recent_steam_id()
 
         for s in sessions:
-            is_current = (s.steam_id == current_sid)
             row = QFrame()
-            border_color = "rgb(0, 212, 255)" if is_current else "rgb(40, 50, 80)"
-            row.setStyleSheet(f"""
-                QFrame {{
-                    background: rgb(30, 40, 62);
-                    border-radius: 8px;
-                    border: 1px solid {border_color};
-                }}
-            """)
             row_layout = QVBoxLayout(row)
             
             # 상단: 계정 정보
             info_row = QHBoxLayout()
-            label_text = f"{s.persona_name} ({s.account_name})"
-            if is_current:
-                label_text += " [Current]"
-            name_label = QLabel(label_text)
-            name_label.setStyleSheet(f"font-weight: bold; border: none; color: {'#00D4FF' if is_current else '#F0F4FF'};")
+            base_label = f"{s.persona_name} ({s.account_name})"
+            name_label = QLabel(base_label)
+            badge_label = QLabel("Current")
+            badge_label.setVisible(False)
+            badge_label.setStyleSheet("""
+                QLabel {
+                    color: #021620;
+                    background: #00D4FF;
+                    border: 1px solid #6FE7FF;
+                    border-radius: 9px;
+                    font-size: 10px;
+                    font-weight: 800;
+                    padding: 1px 8px;
+                }
+            """)
             info_row.addWidget(name_label)
             info_row.addStretch()
+            info_row.addWidget(badge_label)
             row_layout.addLayout(info_row)
 
             # 하단: 입력 및 버튼
@@ -267,10 +278,37 @@ class SettingsWindow(QWidget):
             
             input_row.addLayout(btn_layout, 2)
             row_layout.addLayout(input_row)
-            
+
+            self._session_rows_by_sid[s.steam_id] = row
+            self._session_labels_by_sid[s.steam_id] = name_label
+            self._session_badges_by_sid[s.steam_id] = badge_label
+            self._session_names_by_sid[s.steam_id] = base_label
+            self._apply_current_style(s.steam_id, s.steam_id == current_sid)
             layout.addWidget(row)
 
         return tab
+
+    def _apply_current_style(self, steam_id: str, is_current: bool):
+        row = self._session_rows_by_sid.get(steam_id)
+        label = self._session_labels_by_sid.get(steam_id)
+        badge = self._session_badges_by_sid.get(steam_id)
+        base_name = self._session_names_by_sid.get(steam_id)
+        if row is None or label is None or badge is None or base_name is None:
+            return
+
+        border_color = "rgb(0, 212, 255)" if is_current else "rgb(40, 50, 80)"
+        text_color = "#00D4FF" if is_current else "#F0F4FF"
+        row.setStyleSheet(f"""
+            QFrame {{
+                background: rgb(30, 40, 62);
+                border-radius: 8px;
+                border: 1px solid {border_color};
+            }}
+        """)
+        label.setText(base_name)
+        label.setStyleSheet(f"font-weight: bold; border: none; color: {text_color};")
+        badge.setVisible(is_current)
+        badge.setText("Current")
 
     def _on_v_id_changed(self, steam_id: str, v_id: str):
         SETTINGS["varchive"]["user_map"][steam_id] = v_id.strip()
@@ -458,7 +496,13 @@ class SettingsWindow(QWidget):
     # 공개 API
     # ------------------------------------------------------------------
 
+    def refresh_current_steam_indicator(self):
+        current_sid = get_most_recent_steam_id()
+        for sid in self._session_rows_by_sid:
+            self._apply_current_style(sid, sid == current_sid)
+
     def show_window(self):
+        self.refresh_current_steam_indicator()
         self.show()
         self.activateWindow()
         self.raise_()

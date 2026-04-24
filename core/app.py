@@ -284,6 +284,8 @@ class OvermaxApp:
         if not self.record_manager:
             return
         changed, before_sid, after_sid = self.record_manager.set_steam_id(get_most_recent_steam_id())
+        if self.overlay_ctrl:
+            self.overlay_ctrl.refresh_settings_steam_session()
         if changed:
             self.debug_ctrl.log(f"[Main] Steam 세션 갱신 ({reason}): {before_sid} -> {after_sid}")
             self.overlay_ctrl.notify_record_updated()

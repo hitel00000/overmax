@@ -155,6 +155,11 @@ class OverlayController:
     def notify_record_updated(self):
         self._refresh_recommendations()
 
+    def refresh_settings_steam_session(self):
+        if self._settings_window is None:
+            return
+        self._settings_window.refresh_current_steam_indicator()
+
     def _refresh_recommendations(self):
         if self._song_id is None or not self._current_mode or not self._current_diff:
             self.signals.recommend_ready.emit([], True)
