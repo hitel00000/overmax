@@ -51,7 +51,7 @@ class RecommendEntry:
     floor:       Optional[float]   # 비공식 난이도 수치 (floorName 파싱)
     floor_name:  Optional[str]     # 표시용 문자열 ex) "15.2"
     rate:        Optional[float]   # None = 미탐색
-    color:       str
+    is_max_combo: bool = False
 
     @property
     def has_record(self) -> bool:
@@ -62,8 +62,12 @@ class RecommendEntry:
         return self.rate is not None
 
     @property
-    def is_perfect(self) -> bool:
+    def is_perfect_play(self) -> bool:
         return self.rate is not None and self.rate >= 100.0
+        
+    @property
+    def is_max_combo_play(self) -> bool:
+        return self.is_max_combo
 
 
 class Recommender:
@@ -165,7 +169,6 @@ class Recommender:
                         floor=cand_floor,
                         floor_name=cand_floor_name,
                         rate=None,
-                        color=DIFF_COLORS.get(diff, "#FFFFFF"),
                     ))
 
         if not candidates:
@@ -173,14 +176,16 @@ class Recommender:
 
         # 3. RecordDB bulk 조회
         all_ids  = list({c.song_id for c in candidates})
-        rate_map: dict[tuple[int, str, str], float] = {}
+        rate_map: dict[tuple[int, str, str], dict] = {}
         if self.rdb.is_ready:
             rate_map = self.rdb.get_rate_map(all_ids)
 
         for entry in candidates:
             key = (entry.song_id, entry.button_mode, entry.difficulty)
             if key in rate_map:
-                entry.rate = rate_map[key]
+                rec = rate_map[key]
+                entry.rate = rec["rate"]
+                entry.is_max_combo = rec["is_max_combo"]
 
         # 4. 정렬
         #   1. 기록 있음: rate 낮은 순 (연습이 필요한 약한 패턴 우선)

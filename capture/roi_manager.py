@@ -20,6 +20,7 @@ class ROIManager:
         "jacket": (710, 534, 768, 592),
         "rate": (176, 583, 270, 605),
         "btn_mode": (80, 130, 85, 135),
+        "max_combo_badge": (409, 587, 445, 620),
         "diff_panel": (98, 488, 208, 516),
     }
 

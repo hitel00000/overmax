@@ -106,3 +106,12 @@ class RoiOverlayWindow(QWidget):
                 QColor("#FFAA00"),
                 diff,
             )
+
+        # 6. Max Combo 영역
+        self._draw_box(
+            painter,
+            self._roi_to_qrect(*self.roiman.get_roi("max_combo_badge")),
+            QColor("#00AAFF"),
+            "MAX COMBO",
+        )
+

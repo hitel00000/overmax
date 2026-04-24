@@ -12,6 +12,7 @@ class GameSessionState:
     mode: Optional[str]
     diff: Optional[str]
     is_stable: bool = False
+    is_max_combo: bool = False
     
     # 헬퍼 프로퍼티
     @property
@@ -21,4 +22,5 @@ class GameSessionState:
 
     def __str__(self):
         status = "STABLE" if self.is_stable else "DETECTING"
-        return f"[{status}] {self.song_id} | {self.mode} | {self.diff}"
+        mc_status = " (MAX COMBO)" if self.is_max_combo else ""
+        return f"[{status}] {self.song_id} | {self.mode} | {self.diff}{mc_status}"

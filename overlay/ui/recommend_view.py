@@ -56,7 +56,12 @@ class PatternRow(QFrame):
 
         # Rate
         if self.entry.is_played:
-            rate_label = QLabel(f"{self.entry.rate:.2f}%")
+            text = f"{self.entry.rate:.2f}%"
+            if self.entry.is_perfect_play:
+                text += " (P)"
+            elif self.entry.is_max_combo_play:
+                text += " (M)"
+            rate_label = QLabel(text)
             rate_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             rate_label.setStyleSheet(
                 f"color: {self._rate_color(self.entry.rate)}; "

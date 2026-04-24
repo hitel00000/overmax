@@ -58,12 +58,13 @@ class RecordDB:
     def _create_records_table(self, conn: sqlite3.Connection):
         conn.execute("""
             CREATE TABLE IF NOT EXISTS records (
-                steam_id    TEXT NOT NULL,
-                song_id     TEXT NOT NULL,
-                button_mode TEXT NOT NULL,
-                difficulty  TEXT NOT NULL,
-                rate        REAL NOT NULL,
-                updated_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                steam_id      TEXT NOT NULL,
+                song_id       TEXT NOT NULL,
+                button_mode   TEXT NOT NULL,
+                difficulty    TEXT NOT NULL,
+                rate          REAL NOT NULL,
+                is_max_combo  INTEGER NOT NULL DEFAULT 0,
+                updated_at    INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
                 PRIMARY KEY (steam_id, song_id, button_mode, difficulty)
             )
         """)
@@ -73,7 +74,7 @@ class RecordDB:
         return any(r[1] == column_name for r in rows)
 
     def _ensure_schema(self, conn: sqlite3.Connection):
-        if self._table_has_column(conn, "records", "steam_id"):
+        if self._table_has_column(conn, "records", "is_max_combo"):
             return
         conn.execute("DROP TABLE records")
         self._create_records_table(conn)
@@ -99,7 +100,14 @@ class RecordDB:
             return "***"
         return f"{steam_id[:4]}...{steam_id[-4:]}"
 
-    def upsert(self, song_id: int, button_mode: str, difficulty: str, rate: float) -> bool:
+    def upsert(
+        self, 
+        song_id: int, 
+        button_mode: str, 
+        difficulty: str, 
+        rate: float,
+        is_max_combo: bool
+    ) -> bool:
         """기록 저장/갱신. 기존 값보다 rate가 높을 때만 덮어씀. rate=0.0은 호출자가 걸러야 함."""
         if not self.is_ready:
             return False
@@ -108,12 +116,18 @@ class RecordDB:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute("""
-                    INSERT INTO records (steam_id, song_id, button_mode, difficulty, rate)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO records (
+                        steam_id, song_id, button_mode, difficulty, rate, is_max_combo
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT(steam_id, song_id, button_mode, difficulty) DO UPDATE SET
-                        rate       = excluded.rate,
-                        updated_at = CAST(strftime('%s', 'now') AS INTEGER)
-                """, (steam_id, sid, button_mode, difficulty, float(rate)))
+                        rate          = excluded.rate,
+                        is_max_combo  = excluded.is_max_combo,
+                        updated_at    = CAST(strftime('%s', 'now') AS INTEGER)
+                """, (
+                    steam_id, sid, button_mode, difficulty, float(rate),
+                    1 if is_max_combo else 0
+                ))
                 conn.commit()
             return True
         except Exception as e:
@@ -128,26 +142,34 @@ class RecordDB:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 row = conn.execute("""
-                    SELECT rate FROM records
+                    SELECT rate, is_max_combo FROM records
                     WHERE steam_id=? AND song_id=? AND button_mode=? AND difficulty=?
                 """, (steam_id, str(song_id), button_mode, difficulty)).fetchone()
-            return float(row[0]) if row else None
+            return {
+                "rate": float(row[0]),
+                "is_max_combo": bool(row[1])
+            } if row else None
         except Exception as e:
             print(f"[RecordDB] get 실패: {e}")
             return None
 
-    def get_all_for_song(self, song_id: int) -> dict[tuple[str, str], float]:
-        """한 곡의 모든 (button_mode, difficulty) → rate 반환."""
+    def get_all_for_song(self, song_id: int) -> dict[tuple[str, str], dict]:
+        """한 곡의 모든 (button_mode, difficulty) → {rate, is_max_combo} 반환."""
         if not self.is_ready:
             return {}
         steam_id = self.get_steam_id()
         try:
             with sqlite3.connect(self.db_path) as conn:
                 rows = conn.execute("""
-                    SELECT button_mode, difficulty, rate FROM records
+                    SELECT button_mode, difficulty, rate, is_max_combo FROM records
                     WHERE steam_id=? AND song_id=?
                 """, (steam_id, str(song_id))).fetchall()
-            return {(r[0], r[1]): float(r[2]) for r in rows}
+            return {
+                (r[0], r[1]): {
+                    "rate": float(r[2]),
+                    "is_max_combo": bool(r[3])
+                } for r in rows
+            }
         except Exception as e:
             print(f"[RecordDB] get_all_for_song 실패: {e}")
             return {}
@@ -157,8 +179,8 @@ class RecordDB:
         song_ids: list[int],
         button_mode: str,
         difficulty: str,
-    ) -> dict[int, float]:
-        """여러 song_id에 대해 특정 (button_mode, difficulty) rate를 한 번에 조회."""
+    ) -> dict[int, dict]:
+        """여러 song_id에 대해 특정 (button_mode, difficulty) 정보를 한 번에 조회."""
         if not self.is_ready or not song_ids:
             return {}
         steam_id = self.get_steam_id()
@@ -166,18 +188,23 @@ class RecordDB:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 rows = conn.execute(f"""
-                    SELECT song_id, rate FROM records
+                    SELECT song_id, rate, is_max_combo FROM records
                     WHERE steam_id=?
                       AND song_id IN ({placeholders})
                       AND button_mode=? AND difficulty=?
                 """, [steam_id] + [str(s) for s in song_ids] + [button_mode, difficulty]).fetchall()
-            return {int(r[0]): float(r[1]) for r in rows}
+            return {
+                int(r[0]): {
+                    "rate": float(r[1]),
+                    "is_max_combo": bool(r[2])
+                } for r in rows
+            }
         except Exception as e:
             print(f"[RecordDB] get_bulk 실패: {e}")
             return {}
 
-    def get_rate_map(self, song_ids: list[int]) -> dict[tuple[int, str, str], float]:
-        """여러 song_id에 대한 (song_id, button_mode, difficulty)→rate 맵 조회."""
+    def get_rate_map(self, song_ids: list[int]) -> dict[tuple[int, str, str], dict]:
+        """여러 song_id에 대한 (song_id, button_mode, difficulty)→{rate, is_max_combo} 맵 조회."""
         if not self.is_ready or not song_ids:
             return {}
         steam_id = self.get_steam_id()
@@ -185,12 +212,17 @@ class RecordDB:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 rows = conn.execute(f"""
-                    SELECT song_id, button_mode, difficulty, rate
+                    SELECT song_id, button_mode, difficulty, rate, is_max_combo
                     FROM records
                     WHERE steam_id=?
                       AND song_id IN ({placeholders})
                 """, [steam_id] + [str(s) for s in song_ids]).fetchall()
-            return {(int(r[0]), r[1], r[2]): float(r[3]) for r in rows}
+            return {
+                (int(r[0]), r[1], r[2]): {
+                    "rate": float(r[3]),
+                    "is_max_combo": bool(r[4])
+                } for r in rows
+            }
         except Exception as e:
             print(f"[RecordDB] get_rate_map 실패: {e}")
             return {}

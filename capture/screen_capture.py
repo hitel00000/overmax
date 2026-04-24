@@ -186,15 +186,16 @@ class ScreenCapture:
             return
 
         self._update_song_id_from_jacket(full_frame, now)
-        mode, diff, is_confident = self.mode_diff_detector.detect(full_frame, self.roiman)
+        mode, diff, is_mc, is_confident = self.mode_diff_detector.detect(full_frame, self.roiman)
         song_id = self._current_song_id
-        current = (song_id, mode, diff)
+        current = (song_id, mode, diff, is_mc)
         is_stable = self._update_stability(current, is_confident)
         state = GameSessionState(
             song_id=song_id,
             mode=mode,
             diff=diff,
             is_stable=is_stable,
+            is_max_combo=is_mc,
         )
 
         self._emit_state_if_changed(state)
@@ -282,8 +283,8 @@ class ScreenCapture:
         self._last_rate_ocr_ts = now
         self._rate_ocr_attempts[current] = attempts + 1
         
-        song_id, mode, diff = current
-        success = await self._do_record_rate(full_frame, song_id, mode, diff)
+        song_id, mode, diff, is_mc = current
+        success = await self._do_record_rate(full_frame, song_id, mode, diff, is_mc)
         if success:
             self._recorded_states.add(current)
 
@@ -297,6 +298,7 @@ class ScreenCapture:
         song_id: int,
         mode: str,
         diff: str,
+        is_max_combo: bool = False,
     ) -> bool:
         """
         Rate 영역 OCR 수행 후 RecordDB에 저장.
@@ -320,7 +322,7 @@ class ScreenCapture:
             self.log("Rate 0.00% - 미플레이로 간주, 저장 skip")
             return True
 
-        if self.record_db is not None and self.record_db.is_ready and self.record_db.upsert(song_id, mode, diff, rate):
+        if self.record_db is not None and self.record_db.is_ready and self.record_db.upsert(song_id, mode, diff, rate, is_max_combo):
             if self.on_record_updated:
                 self.on_record_updated()
 

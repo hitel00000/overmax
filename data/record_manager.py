@@ -14,7 +14,7 @@ class RecordManager:
     def __init__(self, record_db: RecordDB, varchive_client: VArchiveRecordClient):
         self.rdb = record_db
         self.vclient = varchive_client
-        self._varchive_cache: dict[tuple[int, str, str], float] = {}
+        self._varchive_cache: dict[tuple[int, str, str], tuple[float, bool]] = {}
         self._current_steam_id: Optional[str] = None
 
     def initialize(self) -> bool:
@@ -46,49 +46,78 @@ class RecordManager:
                     song_id = int(rec.get("title", 0))
                     diff = rec.get("pattern")
                     rate = float(rec.get("score", 0.0))
+                    is_max_combo = bool(rec.get("maxCombo", False))
                     if song_id is not None and diff:
-                        self._varchive_cache[(song_id, button_mode, diff)] = rate
+                        self._varchive_cache[(song_id, button_mode, diff)] = (rate, is_max_combo)
                 except (ValueError, TypeError):
                     continue
         
         print(f"[RecordManager] V-Archive 캐시 로드 완료: {len(self._varchive_cache)} 건 (steam_id={mask_steam_id(steam_id)})")
 
-    def upsert(self, song_id: int, button_mode: str, difficulty: str, rate: float) -> bool:
+    def upsert(
+        self, 
+        song_id: int, 
+        button_mode: str, 
+        difficulty: str, 
+        rate: float,
+        is_max_combo: bool = False
+    ) -> bool:
         """로컬 DB에 저장 (V-Archive 캐시는 읽기 전용)"""
-        return self.rdb.upsert(song_id, button_mode, difficulty, rate)
+        return self.rdb.upsert(song_id, button_mode, difficulty, rate, is_max_combo)
 
-    def get(self, song_id: int, button_mode: str, difficulty: str) -> Optional[float]:
-        local_rate = self.rdb.get(song_id, button_mode, difficulty)
-        v_rate = self._varchive_cache.get((song_id, button_mode, difficulty))
+    def get(self, song_id: int, button_mode: str, difficulty: str) -> Optional[dict]:
+        local_data = self.rdb.get(song_id, button_mode, difficulty)
+        v_rate, is_max_combo = self._varchive_cache.get((song_id, button_mode, difficulty), (None, False))
 
-        if local_rate is None: return v_rate
-        if v_rate is None: return local_rate
-        return max(local_rate, v_rate)
+        if local_data is None and v_rate is None:
+            return None
+            
+        rate = v_rate if v_rate is not None else 0.0
 
-    def get_bulk(self, song_ids: list[int], button_mode: str, difficulty: str) -> dict[int, float]:
+        if local_data:
+            rate = max(rate, local_data["rate"])
+            is_max_combo = local_data["is_max_combo"] or is_max_combo
+            
+        return {
+            "rate": rate,
+            "is_max_combo": is_max_combo
+        }
+
+    def get_bulk(self, song_ids: list[int], button_mode: str, difficulty: str) -> dict[int, dict]:
         local_map = self.rdb.get_bulk(song_ids, button_mode, difficulty)
         result = local_map.copy()
 
         for sid in song_ids:
-            v_rate = self._varchive_cache.get((sid, button_mode, difficulty))
+            v_rate, is_max_combo = self._varchive_cache.get((sid, button_mode, difficulty))
             if v_rate is not None:
-                if sid not in result or v_rate > result[sid]:
-                    result[sid] = v_rate
+                if sid not in result:
+                    result[sid] = {
+                        "rate": v_rate,
+                        "is_max_combo": is_max_combo
+                    }
+                else:
+                    entry = result[sid]
+                    entry["rate"] = max(entry["rate"], v_rate)
+                    entry["is_max_combo"] |= is_max_combo
         
         return result
 
-    def get_rate_map(self, song_ids: list[int]) -> dict[tuple[int, str, str], float]:
+    def get_rate_map(self, song_ids: list[int]) -> dict[tuple[int, str, str], dict]:
         local_map = self.rdb.get_rate_map(song_ids)
         result = local_map.copy()
 
-        # 모든 캐시를 순회하는 것보다 song_ids에 해당하는 것만 찾는게 빠를 수 있음
-        # 하지만 _varchive_cache가 이미 필터링된 상태라면 (steam_id별) 그냥 순회해도 됨
-        # 여기서는 song_ids를 기준으로 _varchive_cache에서 매칭되는 것만 병합
-        for (sid, mode, diff), v_rate in self._varchive_cache.items():
+        for (sid, mode, diff), (v_rate, is_max_combo) in self._varchive_cache.items():
             if sid in song_ids:
                 key = (sid, mode, diff)
-                if key not in result or v_rate > result[key]:
-                    result[key] = v_rate
+                if key not in result:
+                    result[key] = {
+                        "rate": v_rate,
+                        "is_max_combo": is_max_combo
+                    }
+                else:
+                    entry = result[key]
+                    entry["rate"] = max(entry["rate"], v_rate)
+                    entry["is_max_combo"] |= is_max_combo
 
         return result
 

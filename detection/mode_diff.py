@@ -93,6 +93,18 @@ def detect_difficulty(frame: np.ndarray, roiman: ROIManager) -> tuple[Optional[s
     return best_diff, is_confident
 
 
+def detect_max_combo(frame: np.ndarray, roiman: ROIManager) -> bool:
+    """
+    현재 곡의 맥스 콤보 상태(MAX COMBO / PERFECT PLAY 뱃지)를 감지합니다.
+    """
+    roi = roiman.get_roi("max_combo_badge")
+    b, g, r = _region_mean_bgr(frame, roi)
+    brightness = (r + g + b) / 3.0
+
+    # 뱃지가 노출된 상태(160 이상)인지만 확인한다.
+    return brightness >= 160
+
+
 def detect_mode_and_difficulty(frame: np.ndarray, roiman: ROIManager) -> tuple[Optional[str], Optional[str], bool]:
     """[DEPRECATED] 단일 프레임 기반 버튼 모드와 선택된 난이도 동시 감지. ModeDiffDetector 사용 권장."""
     mode = detect_button_mode(frame, roiman)
@@ -111,6 +123,7 @@ class ModeDiffDetector:
         self._diff_history = deque(maxlen=self.history_size)
         self._stable_mode: Optional[str] = None
         self._stable_diff: Optional[str] = None
+        self._stable_max_combo: bool = False
 
     def reset(self):
         """내부 히스토리 및 안정화된 상태를 초기화합니다."""
@@ -118,20 +131,21 @@ class ModeDiffDetector:
         self._diff_history.clear()
         self._stable_mode = None
         self._stable_diff = None
+        self._stable_max_combo = False
 
-    def detect(self, frame: np.ndarray, roiman: ROIManager) -> tuple[Optional[str], Optional[str], bool]:
+    def detect(self, frame: np.ndarray, roiman: ROIManager) -> tuple[Optional[str], Optional[str], bool, bool]:
         """
-        현재 프레임을 분석하여 안정화된(stable) 모드와 난이도를 반환합니다.
-        UI 애니메이션 중이거나 순간적으로 인식이 튀는 경우, 이전의 안정된 값을 유지합니다.
+        현재 프레임을 분석하여 안정화된(stable) 모드와 난이도, 맥스 콤보 여부를 반환합니다.
         
-        반환: (stable_mode, stable_diff, raw_confident)
+        반환: (stable_mode, stable_diff, is_max_combo, raw_confident)
         """
         raw_mode = detect_button_mode(frame, roiman)
         raw_diff, raw_confident = detect_difficulty(frame, roiman)
+        raw_max_combo = detect_max_combo(frame, roiman)
 
         self._mode_history.append(raw_mode)
         self._diff_history.append(raw_diff if raw_confident else None)
-
+        
         if len(self._mode_history) == self.history_size and len(set(self._mode_history)) == 1:
             if self._mode_history[0] is not None:
                 self._stable_mode = self._mode_history[0]
@@ -140,4 +154,6 @@ class ModeDiffDetector:
             if self._diff_history[0] is not None:
                 self._stable_diff = self._diff_history[0]
 
-        return self._stable_mode, self._stable_diff, raw_confident
+        self._stable_max_combo = raw_max_combo
+
+        return self._stable_mode, self._stable_diff, self._stable_max_combo, raw_confident
