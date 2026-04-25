@@ -35,22 +35,16 @@ from constants import (
     MODE_DIFF_HISTORY,
     RATE_OCR_INTERVAL,
 )
-
-from capture.ocr_wrapper import WindowsOcrEngine, WINDOWS_OCR_AVAILABLE
-
 from capture.roi_manager import ROIManager
 from capture.window_tracker import WindowTracker, WindowRect
 from detection.image_db import ImageDB
-from detection.mode_diff import ModeDiffDetector
+from detection.play_state import PlayStateDetector
+from detection.ocr import OcrDetector
 from core.game_state import GameSessionState
 from capture.helpers import (
     crop_roi,
     has_thumbnail_changed,
-    is_logo_keyword_match,
     make_thumbnail,
-    normalize_alnum,
-    parse_rate_text,
-    preprocess_for_ocr,
 )
 
 
@@ -65,7 +59,6 @@ class ScreenCapture:
         self.image_db = image_db
         self.record_db = record_db
         self.roiman = ROIManager()
-        self.mode_diff_detector = ModeDiffDetector(history_size=MODE_DIFF_HISTORY)
 
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -74,7 +67,9 @@ class ScreenCapture:
 
         self._init_callbacks()
         self._init_runtime_state()
-        self.ocr_engine = WindowsOcrEngine(self.log)
+
+        self.ocr_detector = OcrDetector(self.log)
+        self.play_state_detector = PlayStateDetector(self.ocr_detector, history_size=MODE_DIFF_HISTORY)
 
     def _init_callbacks(self):
         self.on_state_changed: Optional[Callable[[GameSessionState], None]] = None
@@ -94,11 +89,8 @@ class ScreenCapture:
         self._last_jacket_thumb: Optional[np.ndarray] = None
         self._last_jacket_match_ts = 0.0
 
-        self._state_history: deque = deque(maxlen=max(1, MODE_DIFF_HISTORY))
         self._last_emitted_state: Optional[GameSessionState] = None
         self._recorded_states: set = set()
-        self._rate_ocr_attempts: dict[tuple, int] = {}
-        self._last_rate_ocr_ts = 0.0
         self._last_is_leaving = False
         self._last_logo_detected_val: Optional[bool] = None
 
@@ -121,10 +113,11 @@ class ScreenCapture:
         self._running = True
         self._thread = threading.Thread(target=self._loop_entry, daemon=True)
         self._thread.start()
+        ocr_status = "활성" if self.ocr_detector.engine.is_available else "비활성"
         jacket_status = "활성" if (self.image_db and self.image_db.is_ready) else "비활성"
         record_status = "활성" if (self.record_db and self.record_db.is_ready) else "비활성"
         self.log(
-            f"시작됨 (Windows OCR: {WINDOWS_OCR_AVAILABLE}, "
+            f"시작됨 (OCR: {ocr_status}, "
             f"재킷 매칭: {jacket_status}, 기록 수집: {record_status})"
         )
 
@@ -186,28 +179,20 @@ class ScreenCapture:
             return
 
         self._update_song_id_from_jacket(full_frame, now)
-        mode, diff, is_mc, is_confident = self.mode_diff_detector.detect(full_frame, self.roiman)
         song_id = self._current_song_id
-        current = (song_id, mode, diff, is_mc)
-        is_stable = self._update_stability(current, is_confident)
-        state = GameSessionState(
-            song_id=song_id,
-            mode=mode,
-            diff=diff,
-            is_stable=is_stable,
-            is_max_combo=is_mc,
-        )
-
+        
+        state = await self.play_state_detector.detect(full_frame, self.roiman, song_id)
         self._emit_state_if_changed(state)
-        await self._try_record_rate(full_frame, current, is_stable, now)
+        
+        # 새로운 유효 기록 수집 시도
+        if state.is_valid and state.rate is not None:
+            self._try_record_result(state)
 
     def _reset_on_screen_exit(self):
-        self._state_history.clear()
         self._current_song_id = None
         self._last_emitted_state = None
         self._recorded_states.clear()
-        self._rate_ocr_attempts.clear()
-        self.mode_diff_detector.reset()
+        self.play_state_detector.reset()
 
     def _update_song_id_from_jacket(self, full_frame: np.ndarray, now: float):
         if not self._should_match_jacket(now):
@@ -245,88 +230,38 @@ class ScreenCapture:
             self.log(f"재킷 매칭: '{sid}' (유사도 {score:.4f})")
         return int(sid) if str(sid).isdigit() else None
 
-    def _update_stability(self, current: tuple, is_confident: bool) -> bool:
-        valid = all(e is not None for e in current) and is_confident
-        self._state_history.append(current if valid else None)
-        history = list(self._state_history)
-        return (
-            len(history) == self._state_history.maxlen
-            and len(set(history)) == 1
-            and history[0] is not None
-        )
-
     def _emit_state_if_changed(self, state: GameSessionState):
         if state == self._last_emitted_state:
             return
         self._last_emitted_state = state
         if state.is_stable:
             self.log(f"상태 확정: {state}")
-            self._last_rate_ocr_ts = 0.0
         else:
             self.log(f"상태 감지: {state}")
         if self.on_state_changed:
             self.on_state_changed(state)
 
-    async def _try_record_rate(self, full_frame: np.ndarray, current: tuple, is_stable: bool, now: float):
-        if not is_stable or current in self._recorded_states:
-            return
-        if now - self._last_rate_ocr_ts < RATE_OCR_INTERVAL:
-            return
-            
-        # 실패 시 무한 재시도(프레임 드랍 유발) 방지 — 최대 3회까지만 OCR 시도
-        attempts = self._rate_ocr_attempts.get(current, 0)
-        if attempts >= 3:
-            self.log(f"Rate OCR 시도 한도 초과(3회). 해당 곡({current}) OCR 포기.")
-            self._recorded_states.add(current)
+    def _try_record_result(self, state: GameSessionState):
+        """안정화된 상태와 Rate가 준비되었을 때 1회 기록 저장"""
+        current_key = (state.song_id, state.mode, state.diff)
+        if current_key in self._recorded_states:
             return
 
-        self._last_rate_ocr_ts = now
-        self._rate_ocr_attempts[current] = attempts + 1
+        success = False
+        if self.record_db is not None and self.record_db.is_ready and state.rate > 0.0:
+            self.log(f"기록 저장: {state.song_id}, {state.mode}, {state.diff}, {state.rate}, {state.is_max_combo}")
+            success = self.record_db.upsert(
+                state.song_id, 
+                state.mode, 
+                state.diff, 
+                state.rate, 
+                state.is_max_combo
+            )
         
-        song_id, mode, diff, is_mc = current
-        success = await self._do_record_rate(full_frame, song_id, mode, diff, is_mc)
         if success:
-            self._recorded_states.add(current)
-
-    # ------------------------------------------------------------------
-    # Rate OCR + RecordDB 저장
-    # ------------------------------------------------------------------
-
-    async def _do_record_rate(
-        self,
-        full_frame: np.ndarray,
-        song_id: int,
-        mode: str,
-        diff: str,
-        is_max_combo: bool = False,
-    ) -> bool:
-        """
-        Rate 영역 OCR 수행 후 RecordDB에 저장.
-        반환: True = 성공 (recorded_states에 추가 가능), False = 실패 (재시도 예정)
-        """
-        roi_bgra = crop_roi(full_frame, self.roiman.get_roi("rate"))
-        text = await self.ocr_engine.recognize(roi_bgra)
-        rate = parse_rate_text(text)
-
-        if rate is None and not text:
-            self.log(f"Rate OCR 빈 결과 ({song_id} {mode}/{diff}) - 이진화 재시도")
-            text = await self.ocr_engine.recognize(roi_bgra, force_invert=True)
-            rate = parse_rate_text(text)
-        if rate is None:
-            self.log(f"Rate OCR 파싱 실패: '{text}' ({song_id} {mode}/{diff})")
-            return False
-
-        self.log(f"Rate OCR: {song_id} {mode}/{diff} = {rate:.2f}% (raw='{text}')")
-
-        if rate == 0.0:
-            self.log("Rate 0.00% - 미플레이로 간주, 저장 skip")
-            return True
-
-        if self.record_db is not None and self.record_db.is_ready and self.record_db.upsert(song_id, mode, diff, rate, is_max_combo):
+            self._recorded_states.add(current_key)
             if self.on_record_updated:
                 self.on_record_updated()
-
-        return True
 
     # ------------------------------------------------------------------
     # 선곡화면 감지
@@ -380,10 +315,7 @@ class ScreenCapture:
         logo_img = crop_roi(full_frame, logo_roi)
         now = time.time()
         if now - self._last_logo_ocr_ts >= LOGO_OCR_COOLDOWN_SEC:
-            text = await self.ocr_engine.recognize(logo_img)
-            normalized = normalize_alnum(text)
-            keyword = normalize_alnum(LOGO_OCR_KEYWORD)
-            is_detected = is_logo_keyword_match(keyword, normalized)
+            is_detected, text, normalized = await self.ocr_detector.detect_logo(logo_img)
             self._last_logo_ocr_ok = is_detected
             self._last_logo_ocr_ts = now
             if is_detected != self._last_logo_detected_val:

@@ -14,8 +14,6 @@ try:
 except ImportError:
     WINDOWS_OCR_AVAILABLE = False
 
-from capture.helpers import preprocess_for_ocr
-
 
 class WindowsOcrEngine:
     def __init__(self, log_cb=None):
@@ -45,11 +43,30 @@ class WindowsOcrEngine:
             self._log(f"[OCR] 엔진 초기화 실패: {exc}")
             return None
 
+    def _preprocess(self, img_bgra: np.ndarray, force_invert: bool = False) -> Optional[np.ndarray]:
+        h, w = img_bgra.shape[:2]
+        if w == 0 or h == 0:
+            return None
+
+        upscaled = cv2.resize(img_bgra, (w * 3, h * 3), interpolation=cv2.INTER_CUBIC)
+        gray = cv2.cvtColor(upscaled, cv2.COLOR_BGRA2GRAY)
+
+        bg_mean = float(gray.mean())
+        normal_is_dark = bg_mean < 128
+        use_invert = normal_is_dark if force_invert else not normal_is_dark
+
+        if use_invert:
+            _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
+        else:
+            _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+
+        return cv2.copyMakeBorder(thresh, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=0)
+
     async def recognize(self, img_bgra: np.ndarray, force_invert: bool = False) -> str:
         if not self.is_available:
             return ""
         try:
-            thresh = preprocess_for_ocr(img_bgra, force_invert=force_invert)
+            thresh = self._preprocess(img_bgra, force_invert=force_invert)
             if thresh is None:
                 return ""
 

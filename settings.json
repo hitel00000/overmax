@@ -14,7 +14,7 @@
     "ocr_interval_sec": 0.35,
     "idle_sleep_sec": 0.5
   },
-  "mode_diff_detector": {
+  "play_state_detector": {
     "history_size": 3
   },
   "debug_window": {

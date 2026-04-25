@@ -56,8 +56,8 @@ JACKET_CHANGE_THRESHOLD = float(JACKET_SETTINGS["jacket_change_threshold"])
 JACKET_FORCE_RECHECK_SEC = float(JACKET_SETTINGS["jacket_force_recheck_sec"])
 
 # 상태 판정
-_MODE_DIFF_SETTINGS = SETTINGS.get("mode_diff_detector", {})
-MODE_DIFF_HISTORY = int(_MODE_DIFF_SETTINGS.get("history_size", 3))
+_PLAY_STATE_SETTINGS = SETTINGS.get("play_state_detector", {})
+MODE_DIFF_HISTORY = int(_PLAY_STATE_SETTINGS.get("history_size", 3))
 
 # Rate OCR
 RATE_OCR_INTERVAL = 1.5

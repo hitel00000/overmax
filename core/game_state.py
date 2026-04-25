@@ -13,6 +13,7 @@ class GameSessionState:
     diff: Optional[str]
     is_stable: bool = False
     is_max_combo: bool = False
+    rate: Optional[float] = None
     
     # 헬퍼 프로퍼티
     @property
