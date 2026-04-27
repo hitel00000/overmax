@@ -42,7 +42,7 @@ if PYQT_AVAILABLE:
         position_changed  = pyqtSignal(int, int, int, int)
         roi_enabled_changed = pyqtSignal(bool)
         mode_diff_changed = pyqtSignal(str, str)
-        recommend_ready   = pyqtSignal(list, bool)
+        recommend_ready   = pyqtSignal(list, bool, float)
         visibility_toggle_requested = pyqtSignal()
         status_changed    = pyqtSignal(bool)
         confidence_changed = pyqtSignal(float)
@@ -129,6 +129,7 @@ if PYQT_AVAILABLE:
             panel_layout.setSpacing(_s(6, sc))
             panel_layout.addWidget(self._build_header())
             panel_layout.addWidget(self._build_body())
+            panel_layout.addWidget(self._build_footer())
 
             root.addWidget(panel)
             self.adjustSize()
@@ -235,6 +236,34 @@ if PYQT_AVAILABLE:
             return wrapper
 
         # ------------------------------------------------------------------
+        # 푸터
+        # ------------------------------------------------------------------
+
+        def _build_footer(self) -> QFrame:
+            sc = self._scale
+            footer = QFrame()
+            footer.setStyleSheet(f"""
+                QFrame {{
+                    background: rgb(22, 30, 48);
+                    border-radius: {_s(8, sc)}px;
+                }}
+            """)
+            layout = QHBoxLayout(footer)
+            layout.setContentsMargins(_s(10, sc), _s(5, sc), _s(10, sc), _s(5, sc))
+
+            label = QLabel("유사 구간 평균")
+            label.setStyleSheet(f"color: #505870; font-size: {_s(10, sc)}px;")
+            layout.addWidget(label)
+            layout.addStretch()
+
+            self._avg_rate_label = QLabel("——")
+            self._avg_rate_label.setStyleSheet(
+                f"color: #505870; font-size: {_s(11, sc)}px; font-weight: 700;"
+            )
+            layout.addWidget(self._avg_rate_label)
+            return footer
+
+        # ------------------------------------------------------------------
         # 시그널 연결
         # ------------------------------------------------------------------
 
@@ -299,7 +328,7 @@ if PYQT_AVAILABLE:
             self._current_diff = diff or None
             self._apply_tab_update()
 
-        def _on_recommend_ready(self, entries: list[RecommendEntry], no_selection: bool):
+        def _on_recommend_ready(self, entries: list[RecommendEntry], no_selection: bool, avg_rate: float):
             while self._rec_layout.count() > 0:
                 item = self._rec_layout.takeAt(0)
                 if item and item.widget():
@@ -318,6 +347,29 @@ if PYQT_AVAILABLE:
                     self._rec_layout.addWidget(PatternRow(entry, scale=self._scale))
 
             self._rec_layout.addStretch()
+            self._update_avg_rate_label(avg_rate)
+
+        def _update_avg_rate_label(self, avg_rate: float):
+            sc = self._scale
+            if avg_rate < 0.0:
+                self._avg_rate_label.setText("——")
+                self._avg_rate_label.setStyleSheet(
+                    f"color: #505870; font-size: {_s(11, sc)}px; font-weight: 700;"
+                )
+                return
+            color = self._avg_rate_color(avg_rate)
+            self._avg_rate_label.setText(f"{avg_rate:.2f}%")
+            self._avg_rate_label.setStyleSheet(
+                f"color: {color}; font-size: {_s(11, sc)}px; font-weight: 700;"
+            )
+
+        @staticmethod
+        def _avg_rate_color(rate: float) -> str:
+            if rate >= 100.0: return "#FFD700"
+            if rate >= 99.0:  return "#B8DCFF"
+            if rate >= 95.0:  return "#7EC8E3"
+            if rate >= 90.0:  return "#B5EAD7"
+            return "#FF9999"
 
         def _on_status_changed(self, is_stable: bool):
             sc = self._scale

@@ -68,7 +68,7 @@ class OverlayController:
         all_patterns = [{"mode": mode, "patterns": []} for mode in BUTTON_MODES]
         self.signals.song_changed.emit("곡을 선택하세요", all_patterns)
         self.signals.mode_diff_changed.emit("", "")
-        self.signals.recommend_ready.emit([], True)
+        self.signals.recommend_ready.emit([], True, -1.0)
 
     def notify_screen(self, is_song_select: bool):
         self.log(f"화면 알림: {'선곡화면' if is_song_select else '기타화면'}")
@@ -101,9 +101,8 @@ class OverlayController:
             return
 
         self._update_internal_state(state)
-        song_name, all_patterns, recommendations = self._fetch_ui_data()
-
-        self._emit_update_signals(song_changed, mode_diff_changed, song_name, all_patterns, recommendations)
+        song_name, all_patterns, recommendations, avg_rate = self._fetch_ui_data()
+        self._emit_update_signals(song_changed, mode_diff_changed, song_name, all_patterns, recommendations, avg_rate)
 
     def _check_and_emit_status(self, is_stable: bool):
         if getattr(self, "_last_verified", None) != is_stable:
@@ -123,34 +122,35 @@ class OverlayController:
         self._current_mode = state.mode
         self._current_diff = state.diff
 
-    def _fetch_ui_data(self) -> tuple[str, list, list]:
+    def _fetch_ui_data(self) -> tuple[str, list, list, float]:
         song_name = "곡을 선택하세요"
         all_patterns = []
         recommendations = []
 
         if self._song_id is None:
-            return song_name, all_patterns, recommendations
+            return song_name, all_patterns, recommendations, -1.0
 
         song = self.db.search_by_id(self._song_id)
         if not song:
             self.log(f"ID={self._song_id}를 DB에서 찾을 수 없음")
-            return song_name, all_patterns, recommendations
+            return song_name, all_patterns, recommendations, -1.0
 
         song_name = song["name"]
         for mode in BUTTON_MODES:
             pts = self.db.format_pattern_info(song, mode)
             all_patterns.append({"mode": mode, "patterns": pts})
 
+        avg_rate = -1.0
         if self._current_mode and self._current_diff:
-            recommendations = self.recommender.recommend(
+            recommendations, avg_rate = self.recommender.recommend(
                 song_id=self._song_id,
                 button_mode=self._current_mode,
                 difficulty=self._current_diff,
             )
 
-        return song_name, all_patterns, recommendations
+        return song_name, all_patterns, recommendations, avg_rate
 
-    def _emit_update_signals(self, song_changed: bool, mode_diff_changed: bool, song_name: str, all_patterns: list, recommendations: list):
+    def _emit_update_signals(self, song_changed: bool, mode_diff_changed: bool, song_name: str, all_patterns: list, recommendations: list, avg_rate: float):
         if song_changed:
             if self._song_id is None:
                 self._emit_initial_state()
@@ -164,7 +164,7 @@ class OverlayController:
             )
 
         if song_changed or mode_diff_changed:
-            self.signals.recommend_ready.emit(recommendations, False)
+            self.signals.recommend_ready.emit(recommendations, False, avg_rate)
 
     def notify_record_updated(self):
         self._refresh_recommendations()
@@ -176,15 +176,15 @@ class OverlayController:
 
     def _refresh_recommendations(self):
         if self._song_id is None or not self._current_mode or not self._current_diff:
-            self.signals.recommend_ready.emit([], True)
+            self.signals.recommend_ready.emit([], True, -1.0)
             return
 
-        entries = self.recommender.recommend(
+        entries, avg_rate = self.recommender.recommend(
             song_id=self._song_id,
             button_mode=self._current_mode,
             difficulty=self._current_diff,
         )
-        self.signals.recommend_ready.emit(entries, False)
+        self.signals.recommend_ready.emit(entries, False, avg_rate)
 
     def set_roi_overlay_enabled(self, enabled: bool):
         if self._roi_window is None:

@@ -197,4 +197,11 @@ class Recommender:
                 return (1, e.floor or 0.0, 0.0)
 
         candidates.sort(key=sort_key)
-        return candidates[:max_results]
+        avg_rate = _calc_avg_rate(candidates)
+        return candidates[:max_results], avg_rate
+
+
+def _calc_avg_rate(candidates: list[RecommendEntry]) -> float:
+    """floor 범위 내 후보 전체 중 기록 있는 패턴의 rate 평균. 없으면 -1.0."""
+    rates = [e.rate for e in candidates if e.rate is not None]
+    return sum(rates) / len(rates) if rates else -1.0
